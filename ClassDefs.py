@@ -1219,6 +1219,7 @@ class WFC3WhiteFit():
             delTlab = 'delT_{0}'.format( k )
             delTk = pyhm.Uniform( delTlab, lower=-0.3, upper=0.3 )
             self.mbundle[delTlab] = delTk
+            self.initvals[delTlab] = 0
             parentsk['delT'] = delTk
             jd = self.wlcs[k].jd
             Tmidk = self.syspars['Tmid'][0]

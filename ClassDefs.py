@@ -3308,11 +3308,15 @@ class WFC3Spectra():
             for i in range( self.nframes ):
                 print( '{0} ... image {1} of {2}'.format( k, i+1, self.nframes ) )
                 e1di = self.spectra[k]['ecounts1d'][i,:]
-                e1di_smth = scipy.ndimage.filters.gaussian_filter1d( e1di, sig_e1d )
-                cc = self.CrossCorrSol( x0, e1di_smth, x0, e1d0_smth, \
-                                        dx_max=dpix_max, nshifts=2*dpix_max*1000 )
-                wshifts_pix[i] = cc[0]
-                vstretches[i] = cc[1]
+                if e1di.max()>0:
+                    e1di_smth = scipy.ndimage.filters.gaussian_filter1d( e1di, sig_e1d )
+                    cc = self.CrossCorrSol( x0, e1di_smth, x0, e1d0_smth, \
+                                            dx_max=dpix_max, nshifts=2*dpix_max*1000 )
+                    wshifts_pix[i] = cc[0]
+                    vstretches[i] = cc[1]
+                else:
+                    wshifts_pix[i] = -1
+                    vstretches[i] = -1
             wshifts_micr = wshifts_pix*self.dispersion_micrppix
             self.spectra[k]['auxvars']['wavshift_pix'] = wshifts_pix
             self.spectra[k]['auxvars']['wavshift_micr'] = wshifts_micr

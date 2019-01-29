@@ -365,13 +365,18 @@ class WFC3SpecFit():
         zout['initvals'] = initvals
         return zout
 
+    
     def GPMBundle( self, dset, parents ):
+        # UP TO HERE: HOW TO MAKE SURE THIS HANDLES PARS0->PARENTS
+        # ALONG WITH LIMB DARKENING SHARED ACROSS CONFIGS
+        slcs = self.slcs[dset]
+        Tmid = self.Tmids[dset] # this is the white MLE value
         self.evalmodels[dset] = {}
         self.keepixs[dset] = {}
         ixs0 = np.arange( self.ndat[dset] )
         scanixs = {}
-        scanixs['f'] = ixs0[self.slcs[dset].scandirs==1]
-        scanixs['b'] = ixs0[self.slcs[dset].scandirs==-1]
+        scanixs['f'] = ixs0[slcs[dset].scandirs==1]
+        scanixs['b'] = ixs0[slcs[dset].scandirs==-1]
         for k in self.scankeys[dset]:
             self.GetModelComponents( dset, parents, scanixs, k )
         return None
@@ -386,13 +391,10 @@ class WFC3SpecFit():
         mbundle for current visit, with initvals and evalmodel.
         """
         slcs = self.slcs[dset]
-        config = slcs.config
-        ixs = scanixs[scankey]
-        ixs, pfit0 = self.PolyFitCullixs( dset, config, ixs )
-        self.keepixs[dset][scankey] = ixs
-        idkey = '{0}{1}'.format( dset, scankey )
+        idkey = '{0}{1}'.format( wlc.dsetname, scankey )
         gpinputs = self.gpinputs[dset]
         gpkernel = self.gpkernels[dset]
+        ixs, pfit0 = self.PolyFitCullixs( dset, Tmid, scanixs[scankey] )
         betalabel = 'beta_{0}'.format( idkey )
         if self.beta_free==True:
             parents['beta'] = pyhm.Gaussian( betalabel, mu=1.0, sigma=0.2 )
@@ -400,12 +402,13 @@ class WFC3SpecFit():
         else:
             beta = 1
         self.mbundle[betalabel] = parents['beta']
+        #initvals[pars0['RpRs'].name] = pars0['RpRs']
         if self.syspars['tr_type']=='primary':
             RpRsk = parents['RpRs'].name
-            self.initvals[RpRsk] = self.syspars['RpRs'][0]
+            self.initvals[RpRsk] = self.syspars['RpRs'][0]#pars0['RpRs']
         elif self.syspars['tr_type']=='secondary':
             EcDepthk = parents['EcDepth'].name
-            self.initvals[EcDepthk] = self.syspars['EcDepth'][0]
+            self.initvals[EcDepthk] = self.syspars['EcDepth'][0]#pars0['RpRs']
         else:
             pdb.set_trace()
         batpar, pmodel = self.GetBatmanObject( slcs.jd[ixs], dset, slcs.config )
@@ -413,7 +416,7 @@ class WFC3SpecFit():
         loglikename = 'loglike_{0}'.format( idkey )
         self.mbundle[loglikename] = z['loglikefunc']
         self.mbundle[loglikename].name = loglikename
-        evalmodelfunc = self.GetEvalModel( z, batpar, pmodel )
+        evalmodelfunc = self.GetEvalModel( z, batpar, pmodel ) # TODO
         self.evalmodels[dset][scankey] = [ evalmodelfunc, ixs ]
         return None
 
@@ -514,8 +517,8 @@ class WFC3SpecFit():
             resids = z['flux']/( psignal*ttrend )-1. # model=psignal*ttrend*(1+GP)
             
             gp = z['zgp']['gp']
-            Alabel = z['zgp']['Alabel_global']
-            logiLlabels = z['zgp']['logiLlabels_global']
+            Alabel = z['zgp']['Alabel']
+            logiLlabels = z['zgp']['logiLlabels']
             logiL = []
             for i in logiLlabels:
                 logiL += [ fitvals[i] ]
@@ -523,7 +526,6 @@ class WFC3SpecFit():
             gp.cpars = { 'amp':fitvals[Alabel], 'iscale':iL }
             # Currently the GP(t) baseline is hacked in; may be possible to improve:
             if 'Alabel_baset' in z['zgp']:
-                pdb.set_trace() # this probably needs to be updated
                 Alabel_baset = z['zgp']['Alabel_baset']
                 iLlabel_baset = z['zgp']['iLlabel_baset']
                 gp.cpars['amp_baset'] = fitvals[Alabel_baset]
@@ -751,51 +753,13 @@ class WFC3SpecFit():
         cond8 = ( gp.cfunc==kernels.matern32_ard )
         if cond1+cond2+cond3+cond4: # implies logiL_prior==True
             #z = PrepGP_invL( gp, self.gpinputs[dset], self.auxvars, ixs, idkey )
-            #z = UR.GPinvL( gp, gpinputs, auxvars, ixs, idkey )
-            z = self.GPinvL( dset, gp, ixs, idkey )
+            z = UR.GPinvL( gp, gpinputs, auxvars, ixs, idkey )
         elif cond5+cond6: # implieslogiL_prior==True
             z = self.GPinvLbaset( dset, gp, ixs, idkey )
             #pdb.set_trace() # todo PrepGP_ard( gp, auxvars, idkey )
         elif cond7+cond8: # implieslogiL_prior==False also
             pdb.set_trace() # todo PrepGP_ard( gp, auxvars, idkey )
         return z
-
-    def GPinvL( self, dset, gp, ixs, idkey ):
-        """
-        Define GP parameterized in terms of inverse correlation length
-        scales. Although it's not tested, this routine is designed to
-        handle 1D or ND input variables.
-        """ 
-        gpvars = {}
-        gpinitvals = {}
-        Alabel_global = 'Amp_{0}'.format( idkey )        
-        gpvars['Amp'] = pyhm.Gamma( Alabel_global, alpha=1, beta=1e2 )
-        #gpvars[Alabel] = pyhm.Uniform( Alabel, lower=0, upper=1 )
-        gpinitvals['Amp'] = 1e-5
-        xtrain = []
-        logiLlabels_global = []
-        logiLlabels_local = []
-        for i in self.gpinputs[dset]:
-            k, label = UR.GetVarKey( i )
-            v = self.slcs[dset].auxvars[self.analysis][k]
-            vs = ( v-np.mean( v ) )/np.std( v )
-            pname = 'logiL{0}'.format( label )
-            mlabel = '{0}_{1}'.format( pname, idkey )
-            gpvari = UR.DefineLogiLprior( vs[ixs], i, mlabel, \
-                                          priortype='uniform' )
-            gpvars[pname] = gpvari
-            logiLlow = gpvars[pname].parents['lower']
-            logiLupp = gpvars[pname].parents['upper']
-            gpinitvals[pname] = 1e-6
-            xtrain += [ vs[ixs] ]
-            logiLlabels_global += [ mlabel ]
-            logiLlabels_local += [ pname ]
-        gp.xtrain = np.column_stack( xtrain )
-        zout = { 'gp':gp, 'gpvars':gpvars, 'gpinitvals':gpinitvals, \
-                 'Alabel_global':Alabel_global, 'Alabel_local':'Amp', \
-                 'logiLlabels_global':logiLlabels_global, \
-                 'logiLlabels_local':logiLlabels_local }
-        return zout
 
     def GPinvLbaset( self, dset, gp, ixs, idkey ):
         # TODO = adapt to UtilityRoutines like GPinvL().
@@ -1185,10 +1149,8 @@ class WFC3WhiteFit():
                     self.mbundle.update( { ck[0]:c1, ck[1]:c2, ck[2]:c3, ck[3]:c4 } )
             elif ( self.ld.find( 'fixed' )>=0 ):
                 if ( self.ldbat=='quadratic' ):
-                    gam1, gam2 = ldc
                     self.mbundle.update( { gamk[0]:ldc[0], gamk[1]:ldc[1] } )
                 elif ( self.ldbat=='nonlinear' ):
-                    c1, c2, c3, c4 = ldc
                     self.mbundle.update( { ck[0]:ldc[0], ck[1]:ldc[1], \
                                            ck[2]:ldc[2], ck[3]:ldc[3] } )
             else:
@@ -1488,8 +1450,7 @@ class WFC3WhiteFit():
         # quickly just reload from file.
         cullixs_final = []
         for k in self.scankeys[dset]:
-            #idkeyk = '{0}{1}'.format( wlc.dsetname, k ) # this was what it was...
-            idkeyk = '{0}{1}'.format( dset, k ) # haven't tested yet but should be right?
+            idkeyk = '{0}{1}'.format( wlc.dsetname, k )
             ixsk, pfit0 = self.PolyFitCullixs( dset, Tmid, scanixs[k] )
             #self.cullixs_final[dset][k] = ixsk
             #pdb.set_trace()
@@ -1527,8 +1488,7 @@ class WFC3WhiteFit():
         mbundle for current visit, with initvals and evalmodel.
         """
         wlc = self.wlcs[dset]
-        #idkey = '{0}{1}'.format( wlc.dsetname, scankey ) # this was what it was...
-        idkey = '{0}{1}'.format( dset, scankey ) # haven't tested yet but should be right?
+        idkey = '{0}{1}'.format( wlc.dsetname, scankey )
         gpinputs = self.gpinputs[dset]
         gpkernel = self.gpkernels[dset]
         ixs, pfit0 = self.PolyFitCullixs( dset, Tmid, scanixs[scankey] )#[k] )
@@ -1625,7 +1585,6 @@ class WFC3WhiteFit():
             gp.cpars = { 'amp':fitvals[Alabel], 'iscale':iL }
             # Currently the GP(t) baseline is hacked in; may be possible to improve:
             if 'Alabel_baset' in z['zgp']:
-                pdb.set_trace() # this probably needs to be updated
                 Alabel_baset = z['zgp']['Alabel_baset']
                 iLlabel_baset = z['zgp']['iLlabel_baset']
                 gp.cpars['amp_baset'] = fitvals[Alabel_baset]

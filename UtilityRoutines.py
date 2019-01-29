@@ -519,6 +519,9 @@ def DefineLogiLprior( z, vark, label, priortype='uniform' ):
         #pdb.set_trace()
     elif priortype=='gamma':
         logiL_prior = pyhm.Gamma( label, alpha=1, beta=1 )
+    #print( label, zlow, zupp )
+    #print( z.max()-z.min() )
+    #pdb.set_trace()
     return logiL_prior
 
 def GetChainFromWalkers( walker_chains, nburn=0 ):
@@ -649,7 +652,7 @@ def ScanVal( x ):
         return None
 
 
-def GPinvL( gp, gpinputs, auxvars, ixs, idkey ):
+def GPinvLREDUNDANTITHINK( gp, gpinputs, auxvars, ixs, idkey ):
     """
     Define GP parameterized in terms of inverse correlation length
     scales. Although it's not tested, this routine is designed to

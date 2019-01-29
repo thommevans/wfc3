@@ -3694,21 +3694,24 @@ class WFC3Spectra():
                 print( '{0} ... image {1} of {2}'.format( k, i+1, nframes ) )
                 e2di = e2d[:,:,i]
                 cdcs[i] = self.DetermineScanCenter( e2di, delete=True )
-                # Determine the cross-dispersion coordinates between
-                # which the integration will be performed:
-                xmin = max( [ 0, cdcs[i]-self.apradius ] )
-                xmax = min( [ cdcs[i]+self.apradius, ncross ] )
-                # Sum rows fully contained within aperture:
-                xmin_full = int( np.ceil( xmin ) )
-                xmax_full = int( np.floor( xmax ) )
-                ixs_full = ( x>=xmin_full )*( x<=xmax_full )
-                e1d[i,:] = np.sum( e2di[ixs_full,:], axis=cross_axis )        
-                # Determine partial rows at edge of the aperture and
-                # add their weighted contributions to the flux:
-                xlow_partial = xmin_full - xmin
-                e1d[i,:] += xlow_partial*e2di[xmin_full-1,:]
-                xupp_partial = xmax - xmax_full
-                e1d[i,:] += xupp_partial*e2di[xmax_full+1,:]
+                if ( cdcs[i]>=0 )*( cdcs[i]<ncross ):
+                    # Determine the cross-dispersion coordinates between
+                    # which the integration will be performed:
+                    xmin = max( [ 0, cdcs[i]-self.apradius ] )
+                    xmax = min( [ cdcs[i]+self.apradius, ncross ] )
+                    # Sum rows fully contained within aperture:
+                    xmin_full = int( np.ceil( xmin ) )
+                    xmax_full = int( np.floor( xmax ) )
+                    ixs_full = ( x>=xmin_full )*( x<=xmax_full )
+                    e1d[i,:] = np.sum( e2di[ixs_full,:], axis=cross_axis )        
+                    # Determine partial rows at edge of the aperture and
+                    # add their weighted contributions to the flux:
+                    xlow_partial = xmin_full - xmin
+                    e1d[i,:] += xlow_partial*e2di[xmin_full-1,:]
+                    xupp_partial = xmax - xmax_full
+                    e1d[i,:] += xupp_partial*e2di[xmax_full+1,:]
+                else:
+                    e1d[i,:] = -1
             self.spectra[k]['auxvars']['cdcs'] = cdcs
             self.spectra[k]['ecounts1d'] = e1d
             #pdb.set_trace()

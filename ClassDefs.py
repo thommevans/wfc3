@@ -3706,10 +3706,10 @@ class WFC3Spectra():
                     e1d[i,:] = np.sum( e2di[ixs_full,:], axis=cross_axis )        
                     # Determine partial rows at edge of the aperture and
                     # add their weighted contributions to the flux:
-                    if ixs_full[0] is not True:
+                    if ixs_full[0]!=True:
                         xlow_partial = xmin_full - xmin
                         e1d[i,:] += xlow_partial*e2di[xmin_full-1,:]
-                    if ixs_full[-1] is not True:
+                    if ixs_full[-1]!=True:
                         xupp_partial = xmax - xmax_full
                         e1d[i,:] += xupp_partial*e2di[xmax_full+1,:]
                 else:

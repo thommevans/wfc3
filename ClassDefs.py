@@ -3124,7 +3124,7 @@ class WFC3Spectra():
         self.smoothing_fwhm = None
         self.trim_disp_ixs = []
         self.trim_crossdisp_ixs = []
-        self.shiftstretch_disp_ixs = []
+        self.ss_dispboundixs = []
         self.bg_crossdisp_ixs = []
         self.bg_disp_ixs = []
         self.zap2d_nsig_transient = 10
@@ -3291,7 +3291,7 @@ class WFC3Spectra():
         return self
         
     def ShiftStretch( self ):
-        d1, d2 = self.shiftstretch_disp_ixs
+        d1, d2 = self.ss_dispboundixs
         dpix_max = 1
         dwav_max = dpix_max*self.dispersion_micrppix
         nshifts = int( np.round( 2*dpix_max*(1e3)+1 ) ) # 0.001 pix
@@ -3350,7 +3350,7 @@ class WFC3Spectra():
         A = np.ones( [ ymeas.size, 2 ] )
         b = np.reshape( ymeas/ymeas.max(), [ ymeas.size, 1 ] )
         ss_fits = []
-        ix0, ix1 = self.shiftstretch_disp_ixs
+        ix0, ix1 = self.ss_dispboundixs
         for i in range( nshifts ):
             # Assuming the default x-solution is x0, shift the model
             # array by dx. If this provides a good match to the data,

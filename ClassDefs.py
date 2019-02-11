@@ -261,109 +261,6 @@ class WFC3SpecFit():
     
 
     
-    def PolyFitCullixsBACKUP( self, dset, ixs, scankey ):
-        """
-        Quick polynomial systematics model fit to identify remaining outliers.
-        This routine could probably be broken into smaller pieces.
-        """
-        B = self.BasisMatrix( dset, ixs )
-        RpRs0 = self.wmles[dset]['RpRs']
-        syspars = self.syspars
-        syspars['aRs'] = self.orbpars['aRs']
-        syspars['b'] = self.orbpars['b']
-        syspars['incl'] = self.orbpars['incl']
-        jd = self.slcs[dset].jd[ixs]
-        flux = self.slcs[dset].lc_flux[self.lctype][:,self.chix][ixs]
-        uncs = self.slcs[dset].lc_uncs[self.lctype][:,self.chix][ixs]
-        batpar, pmodel = self.GetBatmanObject( jd, dset )
-        batpar.limb_dark = 'quadratic'
-        batpar.u = self.slcs[dset].ld['quad1d'][self.chix,:]
-        ntrials = 15
-        RpRs0 = RpRs0*( 1+0.1*np.random.randn( ntrials ) )
-        batpar.a = self.orbpars['aRs']
-        batpar.inc = self.orbpars['incl']
-        parkeys = [ 'RpRs' ]
-        def model_eval( pars ):
-            batpar.rp = pars[0]
-            psignal = pmodel.light_curve( batpar )
-            fluxc = flux/psignal
-            coeffs = np.linalg.lstsq( B, fluxc, rcond=None )[0]
-            polyfit = np.dot( B, coeffs )
-            return psignal, polyfit
-        def neglogp( pars ):
-            psignal, polyfit = model_eval( pars )
-            resids = flux-psignal*polyfit
-            return -UR.MVNormalWhiteNoiseLogP( resids, uncs, self.ndat[dset] )
-        pinit = RpRs0
-        pfits = []
-        logps = np.zeros( ntrials )
-        for i in range( ntrials ):
-            print( i+1, ntrials )
-            pfiti = scipy.optimize.fmin( neglogp, pinit[i], xtol=1e-5, \
-                                         ftol=1e-5, maxfun=10000, maxiter=10000 )
-            pfits += [ pfiti ]
-            logps[i] = -neglogp( pfiti )
-        pfit = pfits[np.argmax( logps )]
-        psignal, polyfit = model_eval( pfit )
-        mfit = psignal*polyfit
-        nsig = np.abs( flux-mfit )/uncs
-        ixskeep = ixs[nsig<=5]
-        self.nculled_poly = len( ixs )-len( ixskeep )
-        if self.nculled_poly>0:
-            print( '\nCulled {0:.0f} outliers\n'.format( self.nculled_poly ) )
-        else:
-            print( 'No outliers culled' )
-        pfitdict = {}
-        for i in range( len( parkeys ) ):
-            pfitdict[parkeys[i]] = pfit[i]
-        return ixskeep, pfitdict
-
-    
-    def GPMBundlePrimaryREDUNDANT( self, dset, RpRs ):
-        zplanet = self.PrepPlanetVarsPrimary( dset, RpRs )
-        return self.GPMBundle( dset, zplanet )
-    
-    def GPMBundleSecondaryREDUNDANT( self, dset, EcDepth ):
-        zplanet = self.PrepPlanetVarsSecondary( dset, EcDepth )
-        return self.GPMBundle( dset, zplanet )
-
-    def GPMBundleBACKUP( self, dset, parents ):
-        # UP TO HERE: HOW TO MAKE SURE THIS HANDLES PARS0->PARENTS
-        # ALONG WITH LIMB DARKENING SHARED ACROSS CONFIGS
-        slcs = self.slcs[dset]
-        Tmid = self.Tmids[dset] # this is the white MLE value
-        #pars0 = zplanet[0] # RpRs, limb darkening
-        #initvals = zplanet[1]
-        # Initialise mbundle and start filling with planet parameters:
-        #mbundle = {}
-        #for k in list( pars0.keys() ):
-        #    try:
-        #        mbundle[pars0[k].name] = pars0[k]
-        #    except:
-        #        mbundle[k] = pars0[k]
-        #zout = {}
-        #zout['evalmodel'] = {}
-        self.evalmodels[dset] = {}
-        self.keepixs[dset] = {}
-        ixs0 = np.arange( self.ndat[dset] )
-        for j in slcs.scankeys:
-            ixsj = ixs0[slcs.scandirs==UR.ScanVal( j )]
-            idkeyj = '{0}{1}'.format( slcs.dsetname, j )
-            ixsj, pfit0 = self.PolyFitCullixs( dset, slcs.config, ixsj )
-            self.keepixs[dset][j] = ixsj
-            zj = self.GetModelComponents( dset, parents, ixsj, idkeyj ) #???
-            for k in list( zj[0].keys() ):
-                mbundle[k] = zj[0][k]
-            for k in list( zj[1].keys() ):
-                initvals[k] = zj[1][k]
-            zout['evalmodel'][j] = [ zj[2], ixsj ]
-        if self.syspars['tr_type']=='primary':
-            initvals[pars0['RpRs'].name] = pfit0['RpRs']
-        elif self.syspars['tr_type']=='secondary':
-            initvals[pars0['EcDepth'].name] = pfit0['EcDepth']        
-        zout['mbundle'] = mbundle
-        zout['initvals'] = initvals
-        return zout
 
     def GPMBundle( self, dset, parents ):
         self.evalmodels[dset] = {}
@@ -418,47 +315,6 @@ class WFC3SpecFit():
         return None
 
     
-    def GetModelComponentsBACKUP( self, dset, parents, ixs, idkey ):
-        """
-        Takes planet parameters in pars0, which have been defined separately
-        to handle variety of cases with separate/shared parameters across
-        visits etc. Then defines the systematics model for this visit+scandir
-        combination, including the log-likelihood function. Returns complete 
-        mbundle for current visit, with initvals and evalmodel.
-        """
-        slcs = self.slcs[dset]
-        gpinputs = self.gpinputs[dset]
-        gpkernel = self.gpkernels[dset]
-        #mbundle = {}
-        #initvals = {}
-        betalabel = 'beta_{0}'.format( idkey )
-        if self.beta_free==True:
-            parents['beta'] = pyhm.Gaussian( betalabel, mu=1.0, sigma=0.2 )
-            self.initvals[betalabel] = 1.0
-        else:
-            beta = 1
-        self.mbundle[betalabel] = parents['beta']
-        #initvals[pars0['RpRs'].name] = pars0['RpRs']
-        if self.syspars['tr_type']=='primary':
-            RpRsk = parents['RpRs'].name
-            self.initvals[RpRsk] = self.syspars['RpRs'][0]#pars0['RpRs']
-        elif self.syspars['tr_type']=='secondary':
-            EcDepthk = parents['EcDepth'].name
-            self.initvals[EcDepthk] = self.syspars['EcDepth'][0]#pars0['RpRs']
-        else:
-            pdb.set_trace()
-        batpar, pmodel = self.GetBatmanObject( slcs.jd[ixs], dset, slcs.config )
-        z = self.GPLogLike( dset, parents, batpar, pmodel, ixs, idkey )
-        #for k in list( z['pars'].keys() ):
-        #    mbundle[k] = z['pars'][k]
-        #    initvals[k] = z['initvals'][k]
-        #    print( k, initvals[k] )
-        loglikename = 'loglike_{0}'.format( idkey )
-        self.mbundle[loglikename] = z['loglikefunc']
-        self.mbundle[loglikename].name = loglikename
-        evalmodelfunc = self.GetEvalModel( z, batpar, pmodel ) # TODO
-        self.evalmodels[dset][scankey] = [ evalmodelfunc, ixs ]
-        return None
     
     
     def GetBatmanObject( self, jd, dset, config ):
@@ -553,61 +409,6 @@ class WFC3SpecFit():
         initvals = { RpRs.name:self.wmles[dset]['RpRs'] }
         return pars0, initvals, ldbat, ldpars
 
-    def PrepPlanetVarsPrimaryBACKUP( self, dset, RpRs ):
-        """
-        Returns the free parameter objects, initial values and 
-        information required by batman for limb darkening.
-        """
-        slcs = self.slcs[dset]
-        ldkey = UR.GetLDKey( self.ld )
-        if ldkey.find( 'nonlin' )>=0:
-            ldbat = 'nonlinear'
-        elif ldkey.find( 'quad' )>=0:
-            ldbat = 'quadratic'
-        else:
-            pdb.set_trace()
-        if ldbat=='nonlinear':
-            ldpars = slcs.ld['nonlin1d'][self.chix,:]
-        elif ldbat=='quadratic':
-            ldpars = slcs.ld['quad1d'][self.chix,:]
-        else:
-            pdb.set_trace()
-        pars0 = { 'RpRs':RpRs }
-        initvals = { RpRs.name:self.wmles[dset]['RpRs'] }
-        if ( ldbat=='quadratic' )*( self.ld.find( 'free' )>=0 ):
-            ldsig = 0.6
-            gam1 = pyhm.Gaussian( 'gam1_{0}'.format( dset ), mu=ldpars[0], sigma=ldsig )
-            gam2 = pyhm.Gaussian( 'gam2_{0}'.format( dset ), mu=ldpars[1], sigma=ldsig )
-            initvals[gam1.name] = ldpars[0]
-            initvals[gam2.name] = ldpars[1]
-            pars0['gam1'] = gam1
-            pars0['gam2'] = gam2
-        elif ( ldbat=='nonlinear' )*( self.ld.find( 'free' )>=0 ):
-            ldsig = 0.6
-            c1 = pyhm.Gaussian( 'c1_{0}'.format( dset ), mu=ldpars[0], sigma=ldsig )
-            c2 = pyhm.Gaussian( 'c2_{0}'.format( dset ), mu=ldpars[1], sigma=ldsig )
-            c3 = pyhm.Gaussian( 'c3_{0}'.format( dset ), mu=ldpars[2], sigma=ldsig )
-            c4 = pyhm.Gaussian( 'c4_{0}'.format( dset ), mu=ldpars[3], sigma=ldsig )
-            initvals[c1.name] = ldpars[0]
-            initvals[c2.name] = ldpars[1]
-            initvals[c3.name] = ldpars[2]
-            initvals[c4.name] = ldpars[3]
-            pars0['c1'] = c1
-            pars0['c2'] = c2
-            pars0['c3'] = c3
-            pars0['c4'] = c4
-        elif ( ldbat=='quadratic' )*( self.ld.find( 'fixed' )>=0 ):
-            pars0['gam1'] = ldpars[0]
-            pars0['gam2'] = ldpars[1]
-        elif ( ldbat=='nonlinear' )*( self.ld.find( 'fixed' )>=0 ):
-            pars0['c1'] = ldpars[0]
-            pars0['c2'] = ldpars[1]
-            pars0['c3'] = ldpars[2]
-            pars0['c4'] = ldpars[3]
-        else:
-            pdb.set_trace() # todo
-        return pars0, initvals, ldbat, ldpars
-
         
     def PrepPlanetVarsSecondary( self, dset, EcDepth ):
         """
@@ -621,60 +422,6 @@ class WFC3SpecFit():
         ldpars = [ 0, 0 ] # no stellar limb darkening
         return pars0, initvals, ldbat, ldpars
 
-    def PrepPlanetVarsBACKUP( self, dset, RpRs ):
-        """
-        Returns the free parameter objects, initial values and 
-        information required by batman for limb darkening.
-        """
-        slcs = self.slcs[dset]
-        ldkey = UR.GetLDKey( self.ld )
-        if ldkey.find( 'nonlin' )>=0:
-            ldbat = 'nonlinear'
-        elif ldkey.find( 'quad' )>=0:
-            ldbat = 'quadratic'
-        else:
-            pdb.set_trace()
-        if ldbat=='nonlinear':
-            ldpars = slcs.ld['nonlin1d'][self.chix,:]
-        elif ldbat=='quadratic':
-            ldpars = slcs.ld['quad1d'][self.chix,:]
-        else:
-            pdb.set_trace()
-        pars0 = { 'RpRs':RpRs }
-        initvals = { RpRs.name:self.wmles[dset]['RpRs'] }
-        if ( ldbat=='quadratic' )*( self.ld.find( 'free' )>=0 ):
-            ldsig = 0.6
-            gam1 = pyhm.Gaussian( 'gam1_{0}'.format( dset ), mu=ldpars[0], sigma=ldsig )
-            gam2 = pyhm.Gaussian( 'gam2_{0}'.format( dset ), mu=ldpars[1], sigma=ldsig )
-            initvals[gam1.name] = ldpars[0]
-            initvals[gam2.name] = ldpars[1]
-            pars0['gam1'] = gam1
-            pars0['gam2'] = gam2
-        elif ( ldbat=='nonlinear' )*( self.ld.find( 'free' )>=0 ):
-            ldsig = 0.6
-            c1 = pyhm.Gaussian( 'c1_{0}'.format( dset ), mu=ldpars[0], sigma=ldsig )
-            c2 = pyhm.Gaussian( 'c2_{0}'.format( dset ), mu=ldpars[1], sigma=ldsig )
-            c3 = pyhm.Gaussian( 'c3_{0}'.format( dset ), mu=ldpars[2], sigma=ldsig )
-            c4 = pyhm.Gaussian( 'c4_{0}'.format( dset ), mu=ldpars[3], sigma=ldsig )
-            initvals[c1.name] = ldpars[0]
-            initvals[c2.name] = ldpars[1]
-            initvals[c3.name] = ldpars[2]
-            initvals[c4.name] = ldpars[3]
-            pars0['c1'] = c1
-            pars0['c2'] = c2
-            pars0['c3'] = c3
-            pars0['c4'] = c4
-        elif ( ldbat=='quadratic' )*( self.ld.find( 'fixed' )>=0 ):
-            pars0['gam1'] = ldpars[0]
-            pars0['gam2'] = ldpars[1]
-        elif ( ldbat=='nonlinear' )*( self.ld.find( 'fixed' )>=0 ):
-            pars0['c1'] = ldpars[0]
-            pars0['c2'] = ldpars[1]
-            pars0['c3'] = ldpars[2]
-            pars0['c4'] = ldpars[3]
-        else:
-            pdb.set_trace() # todo
-        return pars0, initvals, ldbat, ldpars
 
     def GPLogLike( self, dset, parents, batpar, pmodel, ixs, idkey ):
         slcs = self.slcs[dset]
@@ -1302,17 +1049,6 @@ class WFC3WhiteFit():
         pfitdict = {}
         for i in range( len( parkeys ) ):
             pfitdict[parkeys[i]] = pfit[i]        
-        if 0: # delete below
-            plt.ioff()
-            fig0=plt.figure()
-            ax0a=plt.subplot(211)
-            ax0b=plt.subplot(212,sharex=ax0a)
-            ax0a.errorbar( jd-jd[0], flux, yerr=uncs, fmt='ok' )
-            ax0a.plot( jd-jd[0], mfit, '-r' )
-            ax0b.errorbar( jd-jd[0], flux-mfit, yerr=uncs, fmt='ok' )
-            ax0b.axhline(0,zorder=0)
-            fig0.savefig( '/dash/exobox/tevans/delete.pdf' )
-            pdb.set_trace()
         return ixskeep, pfitdict
 
     def PolyFitPrimary( self, batpar, pmodel, Tmid, B, flux, uncs, ntrials ):
@@ -1414,32 +1150,6 @@ class WFC3WhiteFit():
             pdb.set_trace() # need to work out when to install aRs, b for wmeanfixed
         return pinit, parkeys, mod_eval, neglogp
     
-    def GPMBundlePrimaryREDUNDANT( self, dset, parents, Tmid ):
-        """
-        This routine defines the systematics for a given visit.
-        It accounts for the possibility of there being two 
-        scan directions. Returns dictionary containing mbundle, 
-        evalmodel, and initvals for each scandir.        
-        """
-        # TESTING: I THINK THIS LINE IS REDUNDANT NOW?
-        #zplanet = self.PrepPlanetVarsPrimary( dset, RpRs, aRs, b, delT )
-        #return self.GPMBundle( dset, zplanet, Tmid )
-        #pkeys = { 'RpRs':RpRs.name, 'delT':delT.name }
-        self.GPMBundle( dset, parents, Tmid )
-        return None
-    
-    def GPMBundleSecondaryREDUNDANT( self, dset, parents, Tmid ):
-        """
-        This routine defines the systematics for a given visit.
-        It accounts for the possibility of there being two 
-        scan directions. Returns dictionary containing mbundle, 
-        evalmodel, and initvals for each scandir.        
-        """
-        #zplanet = self.PrepPlanetVarsSecondary( dset, EcDepth, aRs, b, delT )
-        #parents = { 'EcDepth':EcDepth.name, 'delT':delT.name, \
-        #            'aRs':aRs, 'b':
-        self.GPMBundle( dset, parents, Tmid )
-        return None
     
     def GPMBundle( self, dset, parents, Tmid ):
         wlc = self.wlcs[dset]
@@ -1458,66 +1168,6 @@ class WFC3WhiteFit():
         self.cullixs_final[dset] = cullixs_final[ixs]
         return None
     
-    def GPMBundleBACKUP( self, dset, zplanet, Tmid ):
-        wlc = self.wlcs[dset]
-        ixsc = self.cullixs[dset]         
-        pars0 = zplanet[0] # RpRs, aRs, b, delT, limb darkening
-        initvals = zplanet[1]
-        #self.ldbat = zplanet[2] # OLD
-        #self.ldpars = zplanet[3] # OLD
-        # Initialise mbundle and start filling with planet parameters:
-        mbundle = {}
-        for k in list( pars0.keys() ):
-            try:
-                mbundle[pars0[k].name] = pars0[k]
-                #print( 'aaaaa', pars0[k].name )
-            except:
-                mbundle[k] = pars0[k]
-                #print( 'bbbbb', k )
-        #pdb.set_trace()
-        zout = {}
-        zout['evalmodel'] = {}
-        self.cullixs_final[dset] = {}
-        #ixsc = []
-        scanixs = {}
-        scanixs['f'] = ixsc[wlc.scandirs[ixsc]==1]
-        scanixs['b'] = ixsc[wlc.scandirs[ixsc]==-1]
-        ######## NEW BIT, CHANGED FROM BACKUP VERSION BELOW...
-        # TODO: If possible, add PolyFitCullixs() to a separate
-        # routine so that it doesn't happen at the same time
-        # as running GenerateMBundle(), e.g. for if you want to
-        # quickly just reload from file.
-        cullixs_final = []
-        for k in self.scankeys[dset]:
-            #idkeyk = '{0}{1}'.format( wlc.dsetname, k ) # this was what it was...
-            idkeyk = '{0}{1}'.format( dset, k ) # haven't tested yet but should be right?
-            ixsk, pfit0 = self.PolyFitCullixs( dset, Tmid, scanixs[k] )
-            #self.cullixs_final[dset][k] = ixsk
-            #pdb.set_trace()
-            cullixs_final += [ ixsk ]
-            z = self.GetModelComponents( dset, pars0, Tmid, ixsk, idkeyk )
-            for j in list( z[0].keys() ):
-                mbundle[j] = z[0][j]
-            for j in list( z[1].keys() ):
-                initvals[j] = z[1][j]
-            zout['evalmodel'][k] = [ z[2], ixsk ]
-        cullixs_final = np.concatenate( cullixs_final )
-        ixs = np.argsort( cullixs_final )
-        self.cullixs_final[dset] = cullixs_final[ixs]
-        ########
-        if self.syspars['tr_type']=='primary':
-            initvals[pars0['RpRs'].name] = pfit0['RpRs']
-        elif self.syspars['tr_type']=='secondary':
-            initvals[pars0['EcDepth'].name] = pfit0['EcDepth']        
-        initvals[pars0['delT'].name] = pfit0['delT']
-        #initvals[pars0['RpRs'].name] = 0.122 # DELETE REVERT
-        #initvals[pars0['delT'].name] = 0. # DELETE REVERT
-        zout['mbundle'] = mbundle
-        zout['initvals'] = initvals
-        #print( ixs )
-        #pdb.set_trace()
-        return zout
-
         
     def GetModelComponents( self, dset, parents, scanixs, scankey, Tmid ):
         """
@@ -1646,100 +1296,6 @@ class WFC3WhiteFit():
             return { 'arrays':zout, 'batpar':batpar, 'pmodel':pmodel }
         return EvalModel
                 
-    def PrepPlanetVarsPrimaryREDUNDANT( self, dset, RpRs, aRs, b, delT ):
-        """
-        Returns the free parameter objects, initial values and 
-        information required by batman for limb darkening.
-        """
-        wlc = self.wlcs[dset]
-        # todo = allow for orbpars free *and* fixed.    
-        pars0 = { 'RpRs':RpRs, 'aRs':aRs, 'b':b, 'delT':delT }
-        initvals = { RpRs.name:self.syspars['RpRs'][0], delT.name:0 }
-        if self.orbpars=='free':
-            initvals[aRs.name] = self.syspars['aRs'][0]
-            initvals[b.name] = self.syspars['b'][0]
-        #pars0_ld, initvals_ld = self.SetupLDPars()
-        #pars0.update( pars0_ld )
-        #initvals.update( initvals_ld )
-        #for k in list( pars0.keys() ):
-        #    print( k )
-        #pdb.set_trace()
-        return pars0, initvals
-
-    def PrepPlanetVarsPrimaryBACKUPREDUNDANT( self, dset, RpRs, aRs, b, delT ):
-        """
-        Returns the free parameter objects, initial values and 
-        information required by batman for limb darkening.
-        """
-        wlc = self.wlcs[dset]
-        # todo = allow for orbpars free *and* fixed.    
-        ldkey = UR.GetLDKey( self.ld )
-        if ldkey.find( 'nonlin' )>=0:
-            ldbat = 'nonlinear'
-        elif ldkey.find( 'quad' )>=0:
-            ldbat = 'quadratic'
-        else:
-            pdb.set_trace()
-        if ldbat=='nonlinear':
-            ldpars = wlc.ld['nonlin1d']
-        elif ldbat=='quadratic':
-            ldpars = wlc.ld['quad1d']
-        else:
-            pdb.set_trace()
-        pars0 = { 'RpRs':RpRs, 'aRs':aRs, 'b':b, 'delT':delT }
-        initvals = { RpRs.name:self.syspars['RpRs'][0], delT.name:0 }
-        if self.orbpars=='free':
-            initvals[aRs.name] = self.syspars['aRs'][0]
-            initvals[b.name] = self.syspars['b'][0]
-        if ( ldbat=='quadratic' )*( self.ld.find( 'free' )>=0 ):
-            ldsig = 0.6
-            gam1 = pyhm.Gaussian( 'gam1_{0}'.format( dset ), mu=ldpars[0], sigma=ldsig )
-            gam2 = pyhm.Gaussian( 'gam2_{0}'.format( dset ), mu=ldpars[1], sigma=ldsig )
-            initvals[gam1.name] = ldpars[0]
-            initvals[gam2.name] = ldpars[1]
-            pars0['gam1'] = gam1
-            pars0['gam2'] = gam2
-        elif ( ldbat=='nonlinear' )*( self.ld.find( 'free' )>=0 ):
-            ldsig = 0.6
-            c1 = pyhm.Gaussian( 'c1_{0}'.format( dset ), mu=ldpars[0], sigma=ldsig )
-            c2 = pyhm.Gaussian( 'c2_{0}'.format( dset ), mu=ldpars[1], sigma=ldsig )
-            c3 = pyhm.Gaussian( 'c3_{0}'.format( dset ), mu=ldpars[2], sigma=ldsig )
-            c4 = pyhm.Gaussian( 'c4_{0}'.format( dset ), mu=ldpars[3], sigma=ldsig )
-            initvals[c1.name] = ldpars[0]
-            initvals[c2.name] = ldpars[1]
-            initvals[c3.name] = ldpars[2]
-            initvals[c4.name] = ldpars[3]
-            pars0['c1'] = c1
-            pars0['c2'] = c2
-            pars0['c3'] = c3
-            pars0['c4'] = c4
-        elif ( ldbat=='quadratic' )*( self.ld.find( 'fixed' )>=0 ):
-            pars0['gam1'] = ldpars[0]
-            pars0['gam2'] = ldpars[1]
-        elif ( ldbat=='nonlinear' )*( self.ld.find( 'fixed' )>=0 ):
-            pars0['c1'] = ldpars[0]
-            pars0['c2'] = ldpars[1]
-            pars0['c3'] = ldpars[2]
-            pars0['c4'] = ldpars[3]
-        else:
-            pdb.set_trace() # todo
-        return pars0, initvals, ldbat, ldpars
-
-    def PrepPlanetVarsSecondaryREDUNDANT( self, dset, EcDepth, aRs, b, delT ):
-        """
-        Returns the free parameter objects, initial values and 
-        information required by batman for limb darkening.
-        """
-        wlc = self.wlcs[dset]
-        pars0 = { 'EcDepth':EcDepth, 'aRs':aRs, 'b':b, 'delT':delT }
-        initvals = { EcDepth.name:self.syspars['EcDepth'][0], delT.name:0 }
-        if self.orbpars=='free':
-            initvals[aRs.name] = self.syspars['aRs'][0]
-            initvals[b.name] = self.syspars['b'][0]
-        ldbat = 'quadratic'
-        ldpars = [ 0, 0 ] # no stellar limb darkening
-        return pars0, initvals, ldbat, ldpars
-
     
     def GetTmid( self, j, ixsf0, ixsb0 ):
         if self.syspars['tr_type']=='primary':
@@ -2008,7 +1564,6 @@ class WFC3WhiteFit():
             z['mec'] = np.array( [118,42,131] )/256.
         else:
             pdb.set_trace()
-        #print( 'DELETE', dset, scandir )
         return z
 
     def CreatePlotAxes( self ):
@@ -2458,42 +2013,6 @@ class WFC3WhiteFit():
         self.chain = chaindict
         return None
     
-    def GetInitWalkersBACKUP( self, mcmc ):
-        init_walkers = {}
-        for key in mcmc.model.free.keys():
-            init_walkers[key] = np.zeros( self.nwalkers )
-        for i in range( self.nwalkers ):
-            for key in mcmc.model.free.keys():
-                startpos_ok = False
-                counter = 0
-                while startpos_ok==False:
-                    startpos = self.init_par_ranges[key].random()
-                    mcmc.model.free[key].value = startpos
-                    if np.isfinite( mcmc.model.free[key].logp() )==True:
-                        startpos_ok = True
-                    else:
-                        counter += 1
-                    if counter>100:
-                        print( '\n\nTrouble initialising walkers!\n\n' )
-                        for key in mcmc.model.free.keys():
-                            print( key, mcmc.model.free[key].value, \
-                                   mcmc.model.free[key].parents, \
-                                   mcmc.model.free[key].logp() )
-                        pdb.set_trace()
-                init_walkers[key][i] = startpos
-        return init_walkers
-
-    
-    def RefineMLEfromGroupsBACKUP( self ):
-        # Identify which walker group hits the highest logp:
-        logp = np.zeros( self.ngroups )
-        for i in range( self.ngroups ):
-            logp[i] = np.max( self.walker_chains[i]['logp'] )
-        ix = np.argmax( logp )
-        # Restrict to this walker group:
-        self.mle = UR.RefineMLE( self.walker_chains[ix], self.mbundle )
-        return None
-
     
     def EvalPsignalPrimary( self, jd, parents, batpar, pmodel, Tmid0 ):
         batpar.rp = parents['RpRs']
@@ -2506,9 +2025,6 @@ class WFC3WhiteFit():
             ldpars = np.array( [ parents['c1'], parents['c2'], \
                                  parents['c3'], parents['c4'] ] )
         batpar.u = ldpars
-        #### delete:::
-        #batpar.u = np.array([ 0.97757407, -1.11659604,  0.97436267, -0.33334078])
-        
         psignal = pmodel.light_curve( batpar )
         return psignal
 
@@ -2546,39 +2062,6 @@ class WFC3WhiteFit():
         iL = np.exp( np.array( logiL ) )
         gp = zgp['gp']
         gp.cpars = { 'amp':parents[zgp['Alabel_local']], 'iscale':iL }
-        if 'Alabel_baset' in zgp:
-            gp.cpars['amp_baset'] = parents[zgp['Alabel_baset']]
-            gp.cpars['iscale_baset'] = parents[zgp['iLlabel_baset']]
-        gp.etrain = uncs*parents['beta']
-        gp.dtrain = np.reshape( resids, [ resids.size, 1 ] )
-        logp_val = gp.logp_builtin()
-        return logp_val
-
-    def GetGPLogLikelihoodBACKUP( self, jd, flux, uncs, tv, parents, zgp, \
-                                  batpar, pmodel, Tmid0, lineartbase ):
-        if lineartbase==True:
-            ttrend = parents['a0'] + parents['a1']*tv#[ixs]
-        else:
-            ttrend = parents['a0']
-        if self.syspars['tr_type']=='primary':
-            if batpar.limb_dark=='quadratic':
-                batpar.u = np.array( [ parents['gam1'], parents['gam2'] ] )
-            elif batpar.limb_dark=='nonlinear':
-                batpar.u = np.array( [ parents['c1'], parents['c2'], \
-                                       parents['c3'], parents['c4'] ] )
-            psignal = self.EvalPsignalPrimary( jd, parents, batpar, pmodel, Tmid0 )
-        elif self.syspars['tr_type']=='secondary':
-            psignal = self.EvalPsignalSecondary( jd, parents, batpar, pmodel, Tmid0 )
-        else:
-            pdb.set_trace()
-        #resids = flux - psignal*ttrend
-        resids = flux/( psignal*ttrend )-1. # model=psignal*ttrend*(1+GP)
-        logiL = []
-        for i in zgp['logiLlabels']:
-            logiL += [ parents[i] ]
-        iL = np.exp( np.array( logiL ) )
-        gp = zgp['gp']
-        gp.cpars = { 'amp':parents[zgp['Alabel']], 'iscale':iL }
         if 'Alabel_baset' in zgp:
             gp.cpars['amp_baset'] = parents[zgp['Alabel_baset']]
             gp.cpars['iscale_baset'] = parents[zgp['iLlabel_baset']]
@@ -3166,84 +2649,9 @@ class WFC3Spectra():
         self.ShiftStretch()
         self.SaveEcounts2D( ecounts2d )
         self.SaveSpec1D()
-        if 0:
-            f2a = np.sum( self.spectra['rlast']['ecounts1d'].copy(), axis=1 )
-            ntrim = 10
-            f2b = np.sum( self.spectra['rlast']['ecounts1d'].copy()[:,ntrim:-ntrim], axis=1 ) 
-            zzz = np.column_stack( [ self.jd, f2a, f2b ] )#1e6*(f2-f1a)/f1a
-            # CHECK: Why is this f2 different to the old one below?????
-            np.savetxt( '/dash/exobox/tevans/delete2.txt', zzz )
-            np.savetxt( '/dash/exobox/tevans/delete3.txt', self.spectra['rlast']['ecounts1d'].copy() )
-            pdb.set_trace()
         return None
 
     
-    def Extract1DSpectraBACKUP( self ):
-        if ( self.smoothing_fwhm is None )+( self.smoothing_fwhm==0 ):
-            self.smoothing_str = 'unsmoothed'
-            self.smoothing_fwhm = 0.0
-        else:
-            self.smoothing_str = 'smooth{0:.2f}pix'.format( self.smoothing_fwhm )
-        if self.config=='G141':
-            self.filter_str = 'G141'
-        elif self.config=='G102':
-            self.filter_str = 'G102'
-        else:
-            pdb.set_trace()
-        ecounts2d = self.ProcessIma()
-        #######
-        e2dold, e1dold, cdcsold = self.DeleteOld()
-        y1 = { 'rlast':e2dold }
-        ntrim = 10
-        if 0:            
-            for kk in list( ecounts2d.keys() ):
-                ecounts2d[kk] = ecounts2d[kk][ntrim:-ntrim,ntrim:-ntrim,:]
-            self.nscan -= ntrim*2
-            self.ndisp -= ntrim*2
-        y2 = { 'rlast':ecounts2d['rlast'] }
-        #print( np.shape( y1 ), y1[0,0,0] )
-        #print( np.shape( y2 ), y2[0,0,0] )
-        #pdb.set_trace()
-        #######
-        ecounts2d = self.ZapBadPix2D( ecounts2d )
-        self.HSTPhaseTorb()
-        #self.SumSpatScanSpectra( ecounts2d )
-        #######
-        nscan0 = self.nscan
-        ndisp0 = self.ndisp
-        self.nscan -= ntrim*2
-        self.ndisp -= ntrim*2
-        self.SumSpatScanSpectra( y1 )
-        e1 = self.spectra['rlast']['ecounts1d'].copy()
-        self.nscan = nscan0 # revert
-        self.ndisp = ndisp0 # revert
-        self.SumSpatScanSpectra( y2 )
-        e2 = self.spectra['rlast']['ecounts1d'].copy()
-        #print( np.shape( e1 ) )
-        #print( np.shape( e2 ) )
-        #pdb.set_trace()
-        e2 = e2[:,ntrim:-ntrim]
-        f1a = np.sum( e1, axis=1 )
-        f1b = np.sum( e1dold, axis=1 )
-        f2 = np.sum( e2, axis=1 )
-        # This difference is tiny:
-        print( 1e6*(f1a-f1b)/f1a )
-        # which says SumSpatScanSpectra() is fully consistent with old method.
-        # However, this difference is quite large:
-        zzz = np.column_stack( [ self.jd, f1a, f2 ] )#1e6*(f2-f1a)/f1a
-        np.savetxt( '/dash/exobox/tevans/delete.txt', zzz ) # CONFIRMED: f2 agrees perfectly with old
-        # which says its the production of the 2D images that is the PROBLEM.
-        # This makes sense empirically given that the time-series difference appears
-        # extremely similar to the bg_ppix time series...
-        pdb.set_trace()
-        #######
-        self.InstallBandpass()
-        self.GetWavSol( make_plot=False )
-        self.ZapBadPix1D()
-        self.ShiftStretch()
-        self.Save()
-        return None
-
         
     def InstallBandpass( self ):
         bp = Bandpass()
@@ -3534,23 +2942,6 @@ class WFC3Spectra():
             self.spectra[k]['auxvars']['tv'] = tv
         return None
     
-    def HSTPhaseTorbBACKUP( self ):
-        # Calculate the HST orbital phase values:
-        delt = self.jd-self.jd[0]
-        tv = ( delt-np.mean( delt ) )/np.std( delt )        
-        ixs = np.diff( delt )>5*np.median( np.diff( delt ) )
-        hst_period = np.min( np.diff( delt[1:][ixs] ) )
-        hstphase = np.mod( delt, hst_period )/float( hst_period )
-        # Split the orbits:
-        orbixs = UR.SplitHSTOrbixs( delt*24 )
-        torb = np.zeros( self.jd.size )
-        for i in orbixs:
-            torb[i] = self.jd[i]-self.jd[i][0]
-        for k in list( self.spectra.keys() ):
-            self.spectra[k]['auxvars']['hstphase'] = hstphase
-            self.spectra[k]['auxvars']['torb'] = torb
-            self.spectra[k]['auxvars']['tv'] = tv
-        return None
     
     def ZapBadPix1D( self ):
         # NOTE: this doesn't appear to have been
@@ -3577,7 +2968,6 @@ class WFC3Spectra():
     def ZapBadPix2D( self, ecounts2d ):
         ntr = self.zap2d_nsig_transient
         nst = self.zap2d_nsig_static
-        #nst = 1000 # delete
         c1, c2 = self.trim_box[0]
         d1, d2 = self.trim_box[1]
         keys = list( self.spectra.keys() )
@@ -3623,7 +3013,6 @@ class WFC3Spectra():
             self.spectra[k]['auxvars']['bg_ppix'] = []
         self.scandirs = []
         ima_fpaths = []
-        #self.rkeys = 'rlast' # delete
         for i in range( self.nframes ):
             hdu = pyfits.open( self.ima_fpaths[i] )
             h0 = hdu[0].header
@@ -3680,7 +3069,6 @@ class WFC3Spectra():
         cross_axis = 0
         disp_axis = 1
         frame_axis = 2
-        #self.rkeys = [ 'rlast' ] # delete
         for k in self.rkeys:
             print( '\n{0}\nExtracting 1D spectra for {1}:'.format( 50*'#', k ) )
             #e2d = self.spectra[k]['ecounts2d']

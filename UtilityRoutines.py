@@ -81,78 +81,6 @@ def Zap2D( ecounts2d, nsig_transient=8, nsig_static=10, niter=1 ):
         print( '... frame {0} of {1}: ntransient={2}, nstatic={3}'.format( i+1, nframes, ntransient, nstatic ) )
     return e2d_zapped, transient_bpixs, static_bpixs, e2d_medfilt
 
-def Zap2DBACKUP( ecounts2d, nsig_transient=8, nsig_static=10, niter=1 ):
-    """
-    Routine for identifying static and transient bad pixels in a 2d spectroscopic data cube.
-
-    Inputs:
-    ecounts2d - NxMxK data cube where N is cross-dispersion, M is dispersion, K is frame number.
-    nsig_cull_transient - threshold for flagging transient bad pixels.
-    nsig_cull_static - threshold for flagging static bad pixels.
-    niter - number of iterations to be used
-
-    Outputs:
-    e2d_zapped - NxMxK cube containing the data with bad pixels corrected.
-    transient_bad_pixs - NxMxK cube containing 1's for transient bad pixels and 0's otherwise
-    static_bad_pixs - NxMxK cube containing 1's for static bad pixels and 0's otherwise
-    e2d_medfilt - NxMxK cube containing nominal PSF for each frame made using median filter
-    """
-    print( '\nCleaning cosmic rays:' )
-    # Initialise arrays to hold all the outputs:
-    ndisp, ncross, nframes = np.shape( ecounts2d )
-    e2d_zapped = np.zeros( [ ndisp, ncross, nframes ] )
-    e2d_medfilt = np.zeros( [ ndisp, ncross, nframes ] )
-    transient_bpixs = np.zeros( [ ndisp, ncross, nframes ] )
-    static_bpixs = np.zeros( [ ndisp, ncross, nframes ] )
-    ############ DIFFERENCE?
-    # First apply a Gaussian filter to the pixel values
-    # along the time axis of the data cube:
-    e2d_smth = scipy.ndimage.filters.gaussian_filter1d( ecounts2d, sigma=5, axis=2 )
-    e2d_smthsub = ecounts2d - e2d_smth # pixel deviations from smoothed time series
-    ############ DOES THE ABOVE ACTUALLY HELP?
-    med2d = np.median( e2d_smthsub, axis=2 )  # median deviation for each pixel
-    stdv2d = np.std( e2d_smthsub, axis=2 ) # standard deviation in the deviations for each pixel
-    # Loop over the data frames:
-    for i in range( nframes ):
-        e2d_zapped[:,:,i] = ecounts2d[:,:,i].copy()
-        # Identify and replace transient bad pixels, possibly iterating more than once:
-        for k in range( niter ):
-            # Find the deviations of each pixel in the current frame in terms of 
-            # number-of-sigma relative to the corresponding smoothed time series for
-            # each pixel:
-            e2d_smthsub = e2d_zapped[:,:,i] - e2d_smth[:,:,i]
-            dsig_transient = np.abs( ( e2d_smthsub-med2d )/stdv2d )
-            # Flag the outliers:
-            ixs_transient = ( dsig_transient>nsig_transient )
-            # Create a median-filter frame by taking the median of 5 pixels along the
-            # cross-dispersion axis for each pixel, to be used as a nominal PSF:
-            medfilt_ik = scipy.ndimage.filters.median_filter( e2d_zapped[:,:,i], size=[5,1] )
-            # Interpolate any flagged pixels:
-            e2d_zapped[:,:,i][ixs_transient] = medfilt_ik[ixs_transient]
-            # Record the pixels that were flagged in the transient bad pixel map:
-            transient_bpixs[:,:,i][ixs_transient] = 1
-        ntransient = transient_bpixs[:,:,i].sum() # number of transient bad pixels for current frame
-        # Identify and replace static bad pixels, possibly iterating more than once:
-        for k in range( niter ):
-            # Create a median-filter frame by taking the median of 5 pixels along the
-            # cross-dispersion axis for each pixel, to be used as a nominal PSF:
-            medfilt_ik = scipy.ndimage.filters.median_filter( e2d_zapped[:,:,i], size=[5,1] )
-            # Find the deviations of each pixel in the current frame in terms of 
-            # number-of-sigma relative to the nominal PSF:
-            dcounts_static = e2d_zapped[:,:,i] - medfilt_ik
-            stdv_static = np.std( dcounts_static )
-            dsig_static = np.abs( dcounts_static/stdv_static )
-            # Flag the outliers:
-            ixs_static = ( dsig_static>nsig_static )
-            # Interpolate any flagged pixels:
-            e2d_zapped[:,:,i][ixs_static] = medfilt_ik[ixs_static]
-            # Record the pixels that were flagged in the static bad pixel map:
-            static_bpixs[:,:,i][ixs_static] = 1
-        nstatic = static_bpixs[:,:,i].sum() # number of transient bad pixels for current frame
-        e2d_medfilt[:,:,i] = medfilt_ik # record the nominal PSF for the current frame
-        print( '... frame {0} of {1}: ntransient={2}, nstatic={3}'.format( i+1, nframes, ntransient, nstatic ) )
-    return e2d_zapped, transient_bpixs, static_bpixs, e2d_medfilt
-
 
 def Zap1D( ecounts1d, nsig_transient=5, niter=2 ):
     # todo=adapt this routine; NOTE THAT I NOW PASS IN THE TRIMMED ECOUNTS1D ARRAY
@@ -290,71 +218,6 @@ def Bin1D( x, y, nbins=10, shift_left=0.0, shift_right=0.0 ):
     return np.array(xbin), np.array(ybin), np.array(ybinstdvs), np.array(nperbin)
 
 
-def CrossCorrSolBACKUP( x0, ymeas, xtarg, ytarg, dx_max=1, nshifts=1000, deletekey=False ):
-    """
-    This has now been moved to ClassDefs.py.
-    """
-    dw = np.median( np.diff( xtarg ) )
-    wlow = x0.min()-dx_max-dw
-    wupp = x0.max()+dx_max+dw
-    # Extend the target array at both edges:
-    dwlow = np.max( [ xtarg.min()-wlow, 0 ] )
-    dwupp = np.max( [ wupp-xtarg.max(), 0 ] )
-    wbuff_lhs = np.r_[ xtarg.min()-dwlow:xtarg.min():dw ]
-    wbuff_rhs = np.r_[ xtarg.max()+dw:xtarg.max()+dwupp:dw ]
-    xtarg_ext = np.concatenate( [ wbuff_lhs, xtarg, wbuff_rhs ] )
-    fbuff_lhs = np.zeros( len( wbuff_lhs ) )
-    fbuff_rhs = np.zeros( len( wbuff_rhs ) )
-    ytarg_ext = np.concatenate( [ fbuff_lhs, ytarg, fbuff_rhs ] )
-    # Interpolate the extended target array:
-    interpf = scipy.interpolate.interp1d( xtarg_ext, ytarg_ext )
-    shifts = np.linspace( -dx_max, dx_max, nshifts )
-    vstretches = np.zeros( nshifts )
-    rms2 = np.zeros( nshifts )
-    # Loop over the wavelength shifts, where for each shift we move
-    # the target array and compare it to the measured array:
-    A = np.ones( [ ymeas.size, 2 ] )
-    b = np.reshape( ymeas/ymeas.max(), [ ymeas.size, 1 ] )
-    ss_fits = []
-    for i in range( nshifts ):
-        # Assuming the default x-solution is x0, shift the model
-        # array by dx. If this provides a good match to the data,
-        # it means that the default x-solution x0 is off by dx.
-        ytarg_shifted_i = interpf( x0 + shifts[i] )
-        A[:,1] = ytarg_shifted_i/ytarg_shifted_i.max()
-        res = np.linalg.lstsq( A, b, rcond=None )
-        c = res[0].flatten()
-        vstretches[i] = c[1]
-        fit = np.dot( A, c )
-        diffs = b.flatten() - fit.flatten()
-        rms2[i] = np.mean( diffs**2. )
-        ss_fits +=[ fit.flatten() ]
-    ss_fits = np.row_stack( ss_fits )
-    rms2 -= rms2.min()
-    offset = np.ones( nshifts )
-    phi = np.column_stack( [ offset, shifts, shifts**2. ] )
-    nquad = min( [ nshifts, 15 ] )
-    ixmax = np.arange( nshifts )[np.argsort( rms2 )][nquad]
-    ixs = rms2<rms2[ixmax]
-    coeffs = np.linalg.lstsq( phi[ixs,:], rms2[ixs] )[0]
-    nshiftsf = 100*nshifts
-    offsetf = np.ones( nshiftsf )
-    shiftsf = np.linspace( shifts.min(), shifts.max(), nshiftsf )
-    phif = np.column_stack( [ offsetf, shiftsf, shiftsf**2. ] )
-    rms2f = np.dot( phif, coeffs )
-    vstretchesf = np.interp( shiftsf, shifts, vstretches )
-    ixf = np.argmin( rms2f )
-    ix = np.argmin( rms2 )
-    if deletekey==True:
-        plt.close('all')
-        plt.figure()
-        plt.plot( shifts, rms2, '-c' )
-        plt.plot( shifts[ixs], rms2[ixs], '.r' )
-        plt.plot( shiftsf, rms2f, '-g' )
-        #plt.plot( shifts, rms**2., '.m' )
-        pdb.set_trace()
-    print( 'BBBBB', shiftsf[ixf] )
-    return shiftsf[ixf], vstretchesf[ixf], ss_fits[ix,:]
 
 def GetStrs( prelim_fit, beta_free ):
     if prelim_fit==True:
@@ -412,21 +275,6 @@ def LinTrend( jd, tv, flux ):
     c = np.reshape( [f1,f2], [2,1] )    
     z = np.linalg.lstsq( A, c, rcond=None )[0].flatten()
     
-    # delete below
-    if 0:
-        import matplotlib.pyplot as plt
-        plt.figure()
-        plt.plot( tv, flux, 'ok' )
-        offset = np.ones( flux.size )
-        phi = np.column_stack( [ offset, tv ] )
-        mfit = np.dot( phi, z )
-        plt.plot( tv, mfit, '-m' )
-        cwd = os.getcwd()
-        opath = os.path.join( cwd, 'delete5.pdf' )
-        plt.savefig( opath )
-        print( opath )
-        plt.close('all')
-        pdb.set_trace()
     return z
 
 def MVNormalWhiteNoiseLogP( r, u, n  ):
@@ -545,31 +393,6 @@ def GetChainFromWalkers( walker_chains, nburn=0 ):
     return chain, grs
 
 
-def GetChainFromWalkersBACKUP( walker_chains, nburn=0 ):
-    ngroups = len( walker_chains )
-    nsteps = np.zeros( ngroups, dtype=int )
-    nwalkers = np.zeros( ngroups, dtype=int )
-    for i in range( ngroups ):
-        walker_chain = walker_chains[i]
-        nsteps[i], nwalkers[i] = np.shape( walker_chain['logp'] )
-        keys = list( walker_chain.keys() )
-        keys.remove( 'logp' )
-        npar = len( keys )
-    chain_dicts = []
-    chain_arrs = []
-    for i in range( ngroups ):
-        chain_i = pyhm.collapse_walker_chain( walker_chains[i], nburn=nburn )
-        try:
-            chain_i['incl'] = np.rad2deg( np.arccos( chain_i['b']/chain_i['aRs'] ) )
-        except:
-            pass
-        chain_dicts += [ chain_i ]
-    grs = pyhm.gelman_rubin( chain_dicts, nburn=0, thin=1 )
-    chain = pyhm.combine_chains( chain_dicts, nburn=nburn, thin=1 )        
-    z = { 'chain':chain, 'grs':grs, 'ngroups':ngroups, 'nwalkers':nwalkers, \
-          'nsteps':nsteps, 'nburn':nburn }
-    return z
-
 
 def BestfitsEval( mle, evalmodels ):
     dsets = list( evalmodels.keys() )
@@ -652,39 +475,6 @@ def ScanVal( x ):
         return None
 
 
-def GPinvLREDUNDANTITHINK( gp, gpinputs, auxvars, ixs, idkey ):
-    """
-    Define GP parameterized in terms of inverse correlation length
-    scales. Although it's not tested, this routine is designed to
-    handle 1D or ND input variables.
-    """ 
-    gpvars = {}
-    gpinitvals = {}
-    Alabel = 'Amp_{0}'.format( idkey )
-    gpvars[Alabel] = pyhm.Gamma( Alabel, alpha=1, beta=1e2 )
-    #gpvars[Alabel] = pyhm.Uniform( Alabel, lower=0, upper=1 )
-    gpinitvals[Alabel] = 1e-5
-    xtrain = []
-    logiLlabels = []
-    for i in gpinputs:
-        k, label = GetVarKey( i )
-        #v = auxvars[k]
-        #v = self.wlcs[dset].whitelc[self.analysis]['auxvars'][k]
-        v = auxvars[k]
-        ext = '{0}_{1}'.format( label, idkey )
-        vs = ( v-np.mean( v ) )/np.std( v )
-        logiLlabel = 'logiL{0}'.format( ext )
-        gpvari = DefineLogiLprior( vs, i, logiLlabel, priortype='uniform' )
-        gpvars[logiLlabel] = gpvari
-        logiLlow = gpvars[logiLlabel].parents['lower']
-        logiLupp = gpvars[logiLlabel].parents['upper']                
-        gpinitvals[logiLlabel] = 0.5*(logiLlow+logiLupp)#-1e-8#iLlow + 0.3*( iLupp-iLlow )
-        xtrain += [ vs[ixs] ]
-        logiLlabels += [ logiLlabel ]
-    gp.xtrain = np.column_stack( xtrain )
-    zout = { 'gp':gp, 'gpvars':gpvars, 'gpinitvals':gpinitvals, \
-             'Alabel':Alabel, 'logiLlabels':logiLlabels }
-    return zout
     
 
 def RefineMLEfromGroups( walker_chains, mbundle ):

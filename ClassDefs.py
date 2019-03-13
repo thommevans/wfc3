@@ -2914,7 +2914,7 @@ class WFC3Spectra():
         norb = int( np.ceil( ( jd.max()-jd.min() )/hst_period ) )
         delt_edges = []
         # Set zero phase a bit before the first exposure:
-        deltl0 = firstexps[0]-0.05*hst_period
+        deltl0 = firstexps[0]-0.2*hst_period
         # Split the orbits in delt:
         delt_edges = []
         for i in range( norb ):

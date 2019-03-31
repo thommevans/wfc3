@@ -6,6 +6,31 @@ from bayes.pyhm_dev import pyhm
 import numexpr
 
 
+def DERamp( t, torb, pars ):
+    """
+    Implementation of the double-exponential ramp model for WFC3 systematics.
+    Taken from Eq 1-3 of de Wit et al (2018).
+    """
+    p1 = pars[0]
+    p2 = pars[1]
+    p3 = pars[2]
+    p4 = pars[3]
+    p5 = pars[4]
+    p6 = pars[5]
+    p7 = pars[6]
+    rvt = rvFunc( t, p1, p2 )
+    r0t = r0Func( t, torb, rvt, p3, p4, p5 )
+    lintrend = p6+p7*t
+    return rvt*r0t*lintrend
+
+def rvFunc( t, p1, p2 ):
+    return 1+p1*np.exp( -t/p2 )
+
+def r0Func( t, torb, rvt, p3, p4, p5 ):
+    return 1+p3*np.exp( -( torb-p5 )/(p4*rvt) )
+
+
+
 def Zap2D( ecounts2d, nsig_transient=8, nsig_static=10, niter=1 ):
     """
     Routine for identifying static and transient bad pixels in a 2d spectroscopic data cube.

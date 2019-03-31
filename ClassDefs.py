@@ -839,10 +839,101 @@ class WFC3WhiteFit():
         self.nsteps = 250
         self.RpRs_shared = True
         self.EcDepth_shared = True
+
+
+    def GenerateDEMBundle( self ):
+        """
+        This routine was defined after GenerateMBundle (which should become GenerateGPMBundle),
+        in order to handle cases where we're fitting for a double-exponential (DE) ramp model.
+        """
+        dsets = list( self.wlcs.keys() )
+        nvisits = len( dsets )
+        ##########################################
+        # Combine the datasets:
+        data = []
+        aixs = [] # indices to split data
+        bixs = [] # indices to split ramp parameters
+        iparinit = [] # starting instrument model parameters
+        ipar0 = [ 0, 1, 0, 1, 0.1, 1, 0 ]
+        nipar = len( ipar0 )
+        a1 = 0
+        b1 = 0
+        for i in range( nvisits ):
+            dset = dsets[i]
+            wlc = self.wlcs[dset]
+            ixsc = self.cullixs[dset]         
+            scanixs = {}
+            scanixs['f'] = ixsc[wlc.scandirs[ixsc]==1]
+            scanixs['b'] = ixsc[wlc.scandirs[ixsc]==-1]
+            cullixs_final = []
+            for k in self.scankeys[dset]:
+                jdi = wlc.jd[scanixs[k]]
+                thrsi = 24*( jdi-jdi[0] )
+                torbi = wlc.whitelc[self.analysis]['auxvars']['torb'][scanixs[k]]
+                fluxi = wlc.whitelc[self.analysis]['flux'][scanixs[k]]
+                uncsi = wlc.whitelc[self.analysis]['uncs'][scanixs[k]]
+                data += [ np.column_stack( [ jdi, thrsi, torbi, fluxi, uncsi ] ) ]
+                a2 = a1+len( fluxi )
+                aixs += [ [a1,a2] ]
+                # Add initial values for the instrument model parameters:
+                iparinit += [ ipar0 ]
+                b2 = b1+nipar
+                bixs += [ [b1,b2] ]
+                # Slide the indices along for next visit:
+                a1 = a2
+                b1 = b2
+        data = np.vstack( data ) # data packaged together in single array, as will be required by mpfit
+        iparinit = np.concatenate( iparinit ) # initial values for instrument model packaged together
+        aixs = np.row_stack( aixs ) # these indices allow the data to be unpacked for each visit
+        bixs = np.row_stack( bixs ) # unpacking indices for instrument model parameters of each visit
+        ##########################################
+        # Next step is to work out how to define the pmodel stuff with the
+        # different parameters shared and varied separately between datasets.....
+        pdb.set_trace()
         
-    
+        # Define the model parameters shared across all lightcurves:
+        print( '\n{0}\nGenerating model parameters:'.format( 50*'#' ) )
+        parents = {}
+        self.initvals = {}
+        self.mbundle = {}
+        if self.orbpars=='free':
+            aRs = pyhm.Uniform( 'aRs', lower=0, upper=100 )
+            b = pyhm.Uniform( 'b', lower=0, upper=1 )
+            self.mbundle.update( { 'aRs':aRs, 'b':b } )
+            self.initvals.update( { 'aRs':self.syspars['aRs'][0], \
+                                    'b':self.syspars['b'][0] } )
+        elif self.orbpars=='fixed':
+            aRs = self.syspars['aRs'][0]
+            b = self.syspars['b'][0]
+            self.mbundle.update( { 'aRs':aRs, 'b':b } )
+        else:
+            pdb.set_trace()
+        parents.update( { 'aRs':aRs, 'b':b } )
+        if ( self.syspars['tr_type']=='primary' ):
+            if ( self.RpRs_shared==True ):
+                RpRs = pyhm.Uniform( 'RpRs', lower=0, upper=1 )
+                self.mbundle['RpRs'] = RpRs
+                parents['RpRs'] = RpRs
+                self.initvals['RpRs'] = self.syspars['RpRs'][0]
+            else:
+                pdb.set_trace() # have not implemented yet
+            ldpars = self.SetupLDPars()
+            parents.update( ldpars )
+        if ( self.syspars['tr_type']=='secondary' ):
+            if ( self.EcDepth_shared==True ):
+                EcDepth = pyhm.Uniform( 'EcDepth', lower=0, upper=1 )
+                self.mbundle['EcDepth'] = EcDepth
+                parents['EcDepth'] = EcDepth
+                self.initvals['EcDepth'] = self.syspars['EcDepth'][0]
+            else:
+                pdb.set_trace() # have not implemented yet                
+        self.AddVisitMBundles( parents )
+        
+
+        
     def GenerateMBundle( self ):
         """
+        TODO - Rename this GenerateGPMBundle()...
         This routine starts by defining parameters shared across
         multiple visits then calls the AddVisitMBundles() routine
         to define parameters specific to each visit.
@@ -948,6 +1039,82 @@ class WFC3WhiteFit():
                 pdb.set_trace()
         return ldpars
 
+    def GetBatmanObject( self, jd, config ):
+        # Define the batman planet object:
+        batpar = batman.TransitParams()
+        batpar.t0 = self.syspars['T0'][0]
+        batpar.per = self.syspars['P'][0]
+        batpar.rp = self.syspars['RpRs'][0]
+        batpar.a = self.syspars['aRs'][0]
+        batpar.inc = self.syspars['incl'][0]
+        batpar.ecc = self.syspars['ecc'][0]
+        batpar.w = self.syspars['omega'][0]
+        batpar.limb_dark = self.ldbat
+        batpar.u = self.ldpars[config]
+        if self.syspars['tr_type']=='secondary':
+            batpar.fp = self.syspars['EcDepth']
+            batpar.t_secondary = self.syspars['Tmid'][0]
+        pmodel = batman.TransitModel( batpar, jd, transittype=self.syspars['tr_type'] )
+        # Following taken from here:
+        # https://www.cfa.harvard.edu/~lkreidberg/batman/trouble.html#help-batman-is-running-really-slowly-why-is-this
+        # Hopefully it works... but fac==None it seems... not sure why?
+        fac = pmodel.fac
+        pmodel = batman.TransitModel( batpar, jd, fac=fac, \
+                                      transittype=self.syspars['tr_type'] )
+        return batpar, pmodel
+    
+        
+    def GetTmid( self, j, ixsf0, ixsb0 ):
+        if self.syspars['tr_type']=='primary':
+            if ( ixsf0.sum()>0 )*( ixsb0.sum()>0 ):
+                if self.batpars[j]['f'].t0!=self.batpars[j]['b'].t0:
+                    pdb.set_trace()
+                else:
+                    tmid = self.batpars[j]['f'].t0
+            elif ixsf0.sum()>0:
+                tmid = self.batpars[j]['f'].t0
+            else:
+                tmid = self.batpars[j]['b'].t0
+        elif self.syspars['tr_type']=='secondary':
+            if ( ixsf0.sum()>0 )*( ixsb0.sum()>0 ):
+                tmidf = self.batpars[j]['f'].t_secondary
+                tmidb = self.batpars[j]['b'].t_secondary
+                if tmidf!=tmidb:
+                    pdb.set_trace()
+                else:
+                    tmid = tmidf
+            elif ixsf0.sum()>0:
+                tmid = self.batpars[j]['f'].t_secondary
+            else:
+                tmid = self.batpars[j]['b'].t_secondary
+        return tmid
+
+        
+    def EvalPsignalPrimary( self, jd, parents, batpar, pmodel, Tmid0 ):
+        batpar.rp = parents['RpRs']
+        batpar.t0 = Tmid0 + parents['delT']
+        batpar.a = parents['aRs']
+        batpar.inc = np.rad2deg( np.arccos( parents['b']/parents['aRs'] ) )
+        if batpar.limb_dark=='quadratic':
+            ldpars = np.array( [ parents['gam1'], parents['gam2'] ] )
+        elif batpar.limb_dark=='nonlinear':
+            ldpars = np.array( [ parents['c1'], parents['c2'], \
+                                 parents['c3'], parents['c4'] ] )
+        batpar.u = ldpars
+        psignal = pmodel.light_curve( batpar )
+        return psignal
+
+    
+    def EvalPsignalSecondary( self, jd, parents, batpar, pmodel, Tmid0 ):
+        batpar.fp = parents['EcDepth']
+        batpar.t_secondary = Tmid0 + parents['delT']
+        batpar.a = parents['aRs']
+        batpar.inc = np.rad2deg( np.arccos( parents['b']/parents['aRs'] ) )
+        
+        psignal = pmodel.light_curve( batpar )
+        return psignal
+
+    
     def AddVisitMBundles( self, parents ):
         """
         Before calling this routine, any shared parameters have been defined.
@@ -996,6 +1163,333 @@ class WFC3WhiteFit():
             self.GPMBundle( k, parentsk, Tmidk )
         return None
 
+    
+    def GPMBundle( self, dset, parents, Tmid ):
+        wlc = self.wlcs[dset]
+        ixsc = self.cullixs[dset]         
+        self.evalmodels[dset] = {}
+        self.cullixs_final[dset] = {}
+        scanixs = {}
+        scanixs['f'] = ixsc[wlc.scandirs[ixsc]==1]
+        scanixs['b'] = ixsc[wlc.scandirs[ixsc]==-1]
+        cullixs_final = []
+        for k in self.scankeys[dset]:
+            self.GetModelComponents( dset, parents, scanixs, k, Tmid )
+            cullixs_final += [ self.evalmodels[dset][k][1] ]
+        cullixs_final = np.concatenate( cullixs_final )
+        ixs = np.argsort( cullixs_final )
+        self.cullixs_final[dset] = cullixs_final[ixs]
+        return None
+    
+        
+    def GetModelComponents( self, dset, parents, scanixs, scankey, Tmid ):
+        """
+        Takes planet parameters in pars0, which have been defined separately
+        to handle variety of cases with separate/shared parameters across
+        visits etc. Then defines the systematics model for this visit+scandir
+        combination, including the log-likelihood function. Returns complete 
+        mbundle for current visit, with initvals and evalmodel.
+        """
+        wlc = self.wlcs[dset]
+        #idkey = '{0}{1}'.format( wlc.dsetname, scankey ) # this was what it was...
+        idkey = '{0}{1}'.format( dset, scankey ) # haven't tested yet but should be right?
+        gpinputs = self.gpinputs[dset]
+        gpkernel = self.gpkernels[dset]
+        ixs, pfit0 = self.PolyFitCullixs( dset, Tmid, scanixs[scankey] )#[k] )
+        betalabel = 'beta_{0}'.format( idkey )
+        if self.beta_free==True:
+            parents['beta'] = pyhm.Gaussian( betalabel, mu=1.0, sigma=0.2 )
+            self.initvals[betalabel] = 1.0
+        else:
+            parents['beta'] = 1
+        self.mbundle[betalabel] = parents['beta']
+        if self.syspars['tr_type']=='primary':
+            RpRsk = parents['RpRs'].name
+            self.initvals[RpRsk] = self.syspars['RpRs'][0]
+        elif self.syspars['tr_type']=='secondary':
+            EcDepthk = parents['EcDepth'].name
+            self.initvals[EcDepthk] = self.syspars['EcDepth'][0]
+        else:
+            pdb.set_trace()
+        if self.orbpars=='free':
+            self.initvals['aRs'] = self.syspars['aRs'][0]
+            self.initvals['b'] = self.syspars['b'][0]
+        batpar, pmodel = self.GetBatmanObject( wlc.jd[ixs], wlc.config )
+        z = self.GPLogLike( dset, parents, batpar, pmodel, Tmid, ixs, idkey )
+        loglikename = 'loglike_{0}'.format( idkey )
+        self.mbundle[loglikename] = z['loglikefunc']
+        self.mbundle[loglikename].name = loglikename
+        evalmodelfunc = self.GetEvalModel( z, batpar, pmodel, Tmid )
+        self.evalmodels[dset][scankey] = [ evalmodelfunc, ixs ]
+        return None
+
+    
+    def GetEvalModel( self, z, batpar, pmodel, Tmid0 ):
+        tr_type = self.syspars['tr_type']
+        k = z['parlabels']
+        def EvalModel( fitvals ):
+            nf = 500
+            jdf = np.r_[ z['jd'].min():z['jd'].max():1j*nf ]
+            tvf = np.r_[ z['tv'].min():z['tv'].max():1j*nf ]
+            ttrendf = fitvals[k['a0']] + fitvals[k['a1']]*tvf
+            ttrend = fitvals[k['a0']] + fitvals[k['a1']]*z['tv']
+            if self.orbpars=='free':
+                batpar.a = fitvals[k['aRs']]
+                batpar.inc = np.rad2deg( np.arccos( fitvals[k['b']]/batpar.a ) )
+            if tr_type=='primary':
+                batpar.rp = fitvals[k['RpRs']]
+                batpar.t0 = Tmid0 + fitvals[k['delT']]
+                if ( self.ld.find( 'quad' )>=0 )*( self.ld.find( 'free' )>=0 ):
+                    ldpars = np.array( [ fitvals[k['gam1']], fitvals[k['gam2']] ] )
+                    batpar.u = ldpars
+            elif tr_type=='secondary':
+                batpar.fp = fitvals[k['EcDepth']]
+                batpar.t_secondary = Tmid0 + fitvals[k['delT']]
+            
+            pmodelf = batman.TransitModel( batpar, jdf, transittype=tr_type )
+            fac = pmodelf.fac
+            pmodelf = batman.TransitModel( batpar, jdf, transittype=tr_type, \
+                                           fac=fac )
+            psignalf = pmodelf.light_curve( batpar )
+            psignal = pmodel.light_curve( batpar )
+            resids = z['flux']/( psignal*ttrend )-1. # model=psignal*ttrend*(1+GP)
+            
+            gp = z['zgp']['gp']
+            Alabel = z['zgp']['Alabel_global']
+            logiLlabels = z['zgp']['logiLlabels_global']
+            logiL = []
+            for i in logiLlabels:
+                logiL += [ fitvals[i] ]
+            iL = np.exp( np.array( logiL ) )
+            gp.cpars = { 'amp':fitvals[Alabel], 'iscale':iL }
+            # Currently the GP(t) baseline is hacked in; may be possible to improve:
+            if 'Alabel_baset' in z['zgp']:
+                pdb.set_trace() # this probably needs to be updated
+                Alabel_baset = z['zgp']['Alabel_baset']
+                iLlabel_baset = z['zgp']['iLlabel_baset']
+                gp.cpars['amp_baset'] = fitvals[Alabel_baset]
+                gp.cpars['iscale_baset'] = fitvals[iLlabel_baset]
+            if self.beta_free==True:
+                beta = fitvals[k['beta']]
+            else:
+                beta = 1
+            gp.etrain = z['uncs']*beta
+            gp.dtrain = np.reshape( resids, [ resids.size, 1 ] )
+            mu, sig = gp.predictive( xnew=gp.xtrain, enew=gp.etrain )
+            systematics = ttrend#+mu.flatten()#*( mu.flatten() + 1 )
+            bestfits = { 'psignal':psignal, 'ttrend':ttrend, 'mu':mu.flatten(), \
+                         'jdf':jdf, 'psignalf':psignalf, 'ttrendf':ttrendf }
+            zout = { 'psignal':psignal, 'ttrend':ttrend, 'mu':mu.flatten(), \
+                     'jdf':jdf, 'psignalf':psignalf, 'ttrendf':ttrendf }
+            return { 'arrays':zout, 'batpar':batpar, 'pmodel':pmodel }
+        return EvalModel
+                
+    
+    def GetGPLogLikelihood( self, jd, flux, uncs, tv, parents, zgp, \
+                            batpar, pmodel, Tmid0, lineartbase ):
+        if lineartbase==True:
+            ttrend = parents['a0'] + parents['a1']*tv#[ixs]
+        else:
+            ttrend = parents['a0']
+        if self.syspars['tr_type']=='primary':
+            if batpar.limb_dark=='quadratic':
+                batpar.u = np.array( [ parents['gam1'], parents['gam2'] ] )
+            elif batpar.limb_dark=='nonlinear':
+                batpar.u = np.array( [ parents['c1'], parents['c2'], \
+                                       parents['c3'], parents['c4'] ] )
+            psignal = self.EvalPsignalPrimary( jd, parents, batpar, pmodel, Tmid0 )
+        elif self.syspars['tr_type']=='secondary':
+            psignal = self.EvalPsignalSecondary( jd, parents, batpar, pmodel, Tmid0 )
+        else:
+            pdb.set_trace()
+        #resids = flux - psignal*ttrend
+        resids = flux/( psignal*ttrend )-1. # model=psignal*ttrend*(1+GP)
+        logiL = []
+        for i in zgp['logiLlabels_local']:
+            logiL += [ parents[i] ]
+        iL = np.exp( np.array( logiL ) )
+        gp = zgp['gp']
+        gp.cpars = { 'amp':parents[zgp['Alabel_local']], 'iscale':iL }
+        if 'Alabel_baset' in zgp:
+            gp.cpars['amp_baset'] = parents[zgp['Alabel_baset']]
+            gp.cpars['iscale_baset'] = parents[zgp['iLlabel_baset']]
+        gp.etrain = uncs*parents['beta']
+        gp.dtrain = np.reshape( resids, [ resids.size, 1 ] )
+        logp_val = gp.logp_builtin()
+        return logp_val
+
+    
+    def GPLogLike( self, dset, parents, batpar, pmodel, Tmid0, ixs, idkey ):
+        wlc = self.wlcs[dset]
+        config = wlc.config
+        jd = wlc.jd[ixs]
+        tv = wlc.whitelc[self.analysis]['auxvars']['tv'][ixs]
+        flux = wlc.whitelc[self.analysis]['flux'][ixs]
+        uncs = wlc.whitelc[self.analysis]['uncs'][ixs]
+        lintcoeffs = UR.LinTrend( jd, tv, flux )
+        ldbat = self.ldbat
+        #pars = {}
+        #initvals = {}
+        a0k = 'a0_{0}'.format( idkey )
+        parents['a0'] = pyhm.Uniform( a0k, lower=0.5, upper=1.5 )
+        self.mbundle[a0k] = parents['a0']
+        self.initvals[a0k] = lintcoeffs[0]
+        #initvals[a0k] = 1 # DELETE? REVERT?
+        if self.lineartbase[dset]==True:
+            a1k = 'a1_{0}'.format( idkey )
+            parents['a1'] = pyhm.Uniform( a1k, lower=-0.1, upper=0.1 )
+            self.mbundle[a1k] = parents['a1']
+            self.initvals[a1k] = lintcoeffs[1]
+            #initvals[a1k] = 0 # DELETE? REVERT?
+        zgp = self.PrepGP( dset, ixs, idkey )        
+        for k in list( zgp['gpvars'].keys() ):
+            parents[k] = zgp['gpvars'][k]
+        n0 = 30
+        print( 'Model parameters for {0}'.format( dset ).center( 2*n0+1 ) )
+        print( '{0} {1}'.format( 'Local'.rjust( n0 ),'Global'.rjust( n0 ) ) )
+        for k in list( parents.keys() ):
+            try:
+                print( '{0} {1} (free)'\
+                       .format( k.rjust( n0 ), parents[k].name.rjust( n0 ) ) )
+            except:
+                print( '{0} {1} (fixed)'.format( k.rjust( n0 ), k.rjust( n0 ) ) )
+        @pyhm.stochastic( observed=True )
+        def loglikefunc( value=flux, parents=parents ):
+            def logp( value, parents=parents ):
+                logp_val = self.GetGPLogLikelihood( jd, flux, uncs, tv, parents, \
+                                                    zgp, batpar, pmodel, Tmid0, \
+                                                    self.lineartbase[dset] )
+                return logp_val
+        for k in list( zgp['gpvars'].keys() ):
+            l = zgp['gpvars'][k].name
+            self.mbundle[l] = zgp['gpvars'][k]
+            self.initvals[l] = zgp['gpinitvals'][k]
+        parlabels = {}
+        for k in list( parents.keys() ):
+            try:
+                parlabels[k] = parents[k].name
+            except:
+                pass
+        #zout = { 'pars':pars, 'initvals':initvals, 'loglikefunc':loglikefunc, \
+        #         'batpar':batpar, 'pmodel':pmodel, 'jd':jd, 'tv':tv, \
+        #         'flux':flux, 'uncs':uncs, 'parlabels':parlabels, 'zgp':zgp }
+        zout = { 'loglikefunc':loglikefunc, 'batpar':batpar, 'pmodel':pmodel, \
+                 'jd':jd, 'tv':tv, 'flux':flux, 'uncs':uncs, \
+                 'parlabels':parlabels, 'zgp':zgp }
+        return zout
+    
+    def PrepGP( self, dset, ixs, idkey ):
+
+        gp = gp_class.gp( which_type='full' )
+        gp.mfunc = None
+        gp.cfunc = self.gpkernels[dset]
+        gp.mpars = {}
+
+        #auxvars = wlc.whitelc[analysis]['auxvars']
+        cond1 = ( gp.cfunc==kernels.sqexp_invL_ard )
+        cond2 = ( gp.cfunc==kernels.matern32_invL_ard )
+        cond3 = ( gp.cfunc==kernels.sqexp_invL )
+        cond4 = ( gp.cfunc==kernels.matern32_invL )
+        cond5 = ( gp.cfunc==Systematics.custom_kernel_sqexp_invL_ard )
+        cond6 = ( gp.cfunc==Systematics.custom_kernel_mat32_invL_ard )
+        cond7 = ( gp.cfunc==kernels.sqexp_ard )
+        cond8 = ( gp.cfunc==kernels.matern32_ard )
+        if cond1+cond2+cond3+cond4: # implies logiL_prior==True
+            #z = PrepGP_invL( gp, self.gpinputs[dset], self.auxvars, ixs, idkey )
+            z = self.GPinvL( dset, gp, ixs, idkey )
+        elif cond5+cond6: # implieslogiL_prior==True
+            z = self.GPinvLbaset( dset, gp, ixs, idkey )
+            #pdb.set_trace() # todo PrepGP_ard( gp, auxvars, idkey )
+        elif cond7+cond8: # implieslogiL_prior==False also
+            pdb.set_trace() # todo PrepGP_ard( gp, auxvars, idkey )
+        return z
+        
+    def GPinvL( self, dset, gp, ixs, idkey ):
+        """
+        Define GP parameterized in terms of inverse correlation length
+        scales. Although it's not tested, this routine is designed to
+        handle 1D or ND input variables.
+        """ 
+        gpvars = {}
+        gpinitvals = {}
+        Alabel_global = 'Amp_{0}'.format( idkey )        
+        gpvars['Amp'] = pyhm.Gamma( Alabel_global, alpha=1, beta=1e2 )
+        #gpvars[Alabel] = pyhm.Uniform( Alabel, lower=0, upper=1 )
+        gpinitvals['Amp'] = 1e-5
+        xtrain = []
+        logiLlabels_global = []
+        logiLlabels_local = []
+        for i in self.gpinputs[dset]:
+            #v = auxvars[gpinputs[k]]
+            k, label = UR.GetVarKey( i )
+            #v = auxvars[k]
+            v = self.wlcs[dset].whitelc[self.analysis]['auxvars'][k]
+            #ext = '{0}_{1}'.format( label, idkey )
+            vs = ( v-np.mean( v ) )/np.std( v )
+            #logiLlabel = 'logiL{0}'.format( ext )
+            #labeli = ''
+            pname = 'logiL{0}'.format( label )
+            mlabel = '{0}_{1}'.format( pname, idkey )
+            gpvari = UR.DefineLogiLprior( vs[ixs], i, mlabel, \
+                                          priortype='uniform' )
+            gpvars[pname] = gpvari
+            logiLlow = gpvars[pname].parents['lower']
+            logiLupp = gpvars[pname].parents['upper']
+            gpinitvals[pname] = 1e-6# 0.5*(logiLlow+logiLupp)#-1e-8#iLlow + 0.3*( iLupp-iLlow )
+            xtrain += [ vs[ixs] ]
+            logiLlabels_global += [ mlabel ]
+            logiLlabels_local += [ pname ]
+        gp.xtrain = np.column_stack( xtrain )
+        #zout = { 'gp':gp, 'gpvars':gpvars, 'gpinitvals':gpinitvals, \
+        #         'Alabel':Alabel, 'logiLlabels':logiLlabels }
+        zout = { 'gp':gp, 'gpvars':gpvars, 'gpinitvals':gpinitvals, \
+                 'Alabel_global':Alabel_global, 'Alabel_local':'Amp', \
+                 'logiLlabels_global':logiLlabels_global, \
+                 'logiLlabels_local':logiLlabels_local }
+        return zout
+
+    def GPinvLbaset( self, dset, gp, ixs, idkey ):
+        # todo = Should take Alabel and make an Alabel_baset along with
+        # iLlabel_baset and return as output. Adapt from GPinvL().
+        gpvars = {}
+        gpinitvals = {}
+        Alabel = 'Amp_{0}'.format( idkey )
+        Alabel_baset = 'Amp_baset_{0}'.format( idkey )
+        iLlabel_baset = 'iL_baset_{0}'.format( idkey )
+        gpvars[Alabel] = pyhm.Gamma( Alabel, alpha=1, beta=1e2 )
+        #gpvars[Alabel] = pyhm.Uniform( Alabel, lower=0, upper=1 )
+        gpvars[Alabel_baset] = pyhm.Gamma( Alabel_baset, alpha=1, beta=1e3 )
+        gpvars[iLlabel_baset] = pyhm.Uniform( iLlabel_baset, lower=0, upper=2 )
+        gpinitvals[Alabel] = 1e-5
+        gpinitvals[Alabel_baset] = 5e-4
+        gpinitvals[iLlabel_baset] = 0.2
+        tv = self.wlcs[dset].tv
+        xtrain = [ tv[ixs] ]
+        logiLlabels = []
+        for i in self.gpinputs[dset]:
+            #v = auxvars[gpinputs[k]]
+            k, label = UR.GetVarKey( i )
+            #v = auxvars[k]
+            v = self.wlcs[dset].whitelc[self.analysis]['auxvars'][k][ixs]
+            ext = '{0}_{1}'.format( label, idkey )
+            vs = ( v-np.mean( v ) )/np.std( v )
+            logiLlabel = 'logiL{0}'.format( ext )
+            gpvari = UR.DefineLogiLprior( vs, i, logiLlabel, \
+                                          priortype='uniform' )
+            gpvars[logiLlabel] = gpvari
+            logiLlow = gpvars[logiLlabel].parents['lower']
+            logiLupp = gpvars[logiLlabel].parents['upper']
+            #gpinitvals[logiLlabel] = 1e-5#0.5*(logiLlow+logiLupp)#-1e-8#iLlow + 0.3*( iLupp-iLlow )
+            gpinitvals[logiLlabel] = 0.5*(logiLlow+logiLupp)#-1e-8#iLlow + 0.3*( iLupp-iLlow )
+            xtrain += [ vs[ixs] ]
+            logiLlabels += [ logiLlabel ]
+        gp.xtrain = np.column_stack( xtrain )
+        zout = { 'gp':gp, 'gpvars':gpvars, 'gpinitvals':gpinitvals, \
+                 'Alabel':Alabel, 'logiLlabels':logiLlabels, \
+                 'Alabel_baset':Alabel_baset, 'iLlabel_baset':iLlabel_baset }
+        return zout
+
+    
     def PolyFitCullixs( self, dset, Tmid, ixs ):
         """
         Quick polynomial systematics model fit to identify remaining outliers.
@@ -1151,176 +1645,76 @@ class WFC3WhiteFit():
         return pinit, parkeys, mod_eval, neglogp
     
     
-    def GPMBundle( self, dset, parents, Tmid ):
-        wlc = self.wlcs[dset]
-        ixsc = self.cullixs[dset]         
-        self.evalmodels[dset] = {}
-        self.cullixs_final[dset] = {}
-        scanixs = {}
-        scanixs['f'] = ixsc[wlc.scandirs[ixsc]==1]
-        scanixs['b'] = ixsc[wlc.scandirs[ixsc]==-1]
-        cullixs_final = []
-        for k in self.scankeys[dset]:
-            self.GetModelComponents( dset, parents, scanixs, k, Tmid )
-            cullixs_final += [ self.evalmodels[dset][k][1] ]
-        cullixs_final = np.concatenate( cullixs_final )
-        ixs = np.argsort( cullixs_final )
-        self.cullixs_final[dset] = cullixs_final[ixs]
-        return None
-    
-        
-    def GetModelComponents( self, dset, parents, scanixs, scankey, Tmid ):
-        """
-        Takes planet parameters in pars0, which have been defined separately
-        to handle variety of cases with separate/shared parameters across
-        visits etc. Then defines the systematics model for this visit+scandir
-        combination, including the log-likelihood function. Returns complete 
-        mbundle for current visit, with initvals and evalmodel.
-        """
-        wlc = self.wlcs[dset]
-        #idkey = '{0}{1}'.format( wlc.dsetname, scankey ) # this was what it was...
-        idkey = '{0}{1}'.format( dset, scankey ) # haven't tested yet but should be right?
-        gpinputs = self.gpinputs[dset]
-        gpkernel = self.gpkernels[dset]
-        ixs, pfit0 = self.PolyFitCullixs( dset, Tmid, scanixs[scankey] )#[k] )
-        betalabel = 'beta_{0}'.format( idkey )
-        if self.beta_free==True:
-            parents['beta'] = pyhm.Gaussian( betalabel, mu=1.0, sigma=0.2 )
-            self.initvals[betalabel] = 1.0
+    def RunMLE( self ):
+        if self.prelim_fit==True:
+            mp = pyhm.MAP( self.mbundle )
+            for k in list( self.initvals.keys() ):
+                mp.model.free[k].value = self.initvals[k]
+            print( '\nRunning MLE fit...' )
+            print( '\nFree parameters: name, value, parents, logprior' )
+            for k in mp.model.free.keys():
+                print( k, mp.model.free[k].value, mp.model.free[k].parents, \
+                       mp.model.free[k].logp() )
+            print( '\noptmising...' )
+            mp.fit( xtol=1e-5, ftol=1e-5, maxfun=10000, maxiter=10000 )
+            print( 'Done.' )
+            print( '\nMLE results:' )
+            self.mle = {}
+            for k in mp.model.free.keys():
+                self.mle[k] = mp.model.free[k].value
         else:
-            parents['beta'] = 1
-        self.mbundle[betalabel] = parents['beta']
-        if self.syspars['tr_type']=='primary':
-            RpRsk = parents['RpRs'].name
-            self.initvals[RpRsk] = self.syspars['RpRs'][0]
-        elif self.syspars['tr_type']=='secondary':
-            EcDepthk = parents['EcDepth'].name
-            self.initvals[EcDepthk] = self.syspars['EcDepth'][0]
-        else:
-            pdb.set_trace()
-        if self.orbpars=='free':
-            self.initvals['aRs'] = self.syspars['aRs'][0]
-            self.initvals['b'] = self.syspars['b'][0]
-        batpar, pmodel = self.GetBatmanObject( wlc.jd[ixs], wlc.config )
-        z = self.GPLogLike( dset, parents, batpar, pmodel, Tmid, ixs, idkey )
-        loglikename = 'loglike_{0}'.format( idkey )
-        self.mbundle[loglikename] = z['loglikefunc']
-        self.mbundle[loglikename].name = loglikename
-        evalmodelfunc = self.GetEvalModel( z, batpar, pmodel, Tmid )
-        self.evalmodels[dset][scankey] = [ evalmodelfunc, ixs ]
+            prelim_fpaths = self.GetFilePaths( prelim_fit=True )
+            print( '\nReading in preliminary MLE fit:' )
+            print( prelim_fpaths[1] )
+            ifile = open( prelim_fpaths[1], 'rb' )
+            prelim = pickle.load( ifile )
+            ifile.close()
+            self.mle = prelim['mle']
+        for k in list( self.mle.keys() ):
+            print( k, self.mle[k] )
+        print( 'Done.\n' )                
         return None
 
     
-    def GetBatmanObject( self, jd, config ):
-        # Define the batman planet object:
-        batpar = batman.TransitParams()
-        batpar.t0 = self.syspars['T0'][0]
-        batpar.per = self.syspars['P'][0]
-        batpar.rp = self.syspars['RpRs'][0]
-        batpar.a = self.syspars['aRs'][0]
-        batpar.inc = self.syspars['incl'][0]
-        batpar.ecc = self.syspars['ecc'][0]
-        batpar.w = self.syspars['omega'][0]
-        batpar.limb_dark = self.ldbat
-        batpar.u = self.ldpars[config]
-        if self.syspars['tr_type']=='secondary':
-            batpar.fp = self.syspars['EcDepth']
-            batpar.t_secondary = self.syspars['Tmid'][0]
-        pmodel = batman.TransitModel( batpar, jd, transittype=self.syspars['tr_type'] )
-        # Following taken from here:
-        # https://www.cfa.harvard.edu/~lkreidberg/batman/trouble.html#help-batman-is-running-really-slowly-why-is-this
-        # Hopefully it works... but fac==None it seems... not sure why?
-        fac = pmodel.fac
-        pmodel = batman.TransitModel( batpar, jd, fac=fac, \
-                                      transittype=self.syspars['tr_type'] )
-        return batpar, pmodel
-    
-        
-    def GetEvalModel( self, z, batpar, pmodel, Tmid0 ):
-        tr_type = self.syspars['tr_type']
-        k = z['parlabels']
-        def EvalModel( fitvals ):
-            nf = 500
-            jdf = np.r_[ z['jd'].min():z['jd'].max():1j*nf ]
-            tvf = np.r_[ z['tv'].min():z['tv'].max():1j*nf ]
-            ttrendf = fitvals[k['a0']] + fitvals[k['a1']]*tvf
-            ttrend = fitvals[k['a0']] + fitvals[k['a1']]*z['tv']
-            if self.orbpars=='free':
-                batpar.a = fitvals[k['aRs']]
-                batpar.inc = np.rad2deg( np.arccos( fitvals[k['b']]/batpar.a ) )
-            if tr_type=='primary':
-                batpar.rp = fitvals[k['RpRs']]
-                batpar.t0 = Tmid0 + fitvals[k['delT']]
-                if ( self.ld.find( 'quad' )>=0 )*( self.ld.find( 'free' )>=0 ):
-                    ldpars = np.array( [ fitvals[k['gam1']], fitvals[k['gam2']] ] )
-                    batpar.u = ldpars
-            elif tr_type=='secondary':
-                batpar.fp = fitvals[k['EcDepth']]
-                batpar.t_secondary = Tmid0 + fitvals[k['delT']]
-            
-            pmodelf = batman.TransitModel( batpar, jdf, transittype=tr_type )
-            fac = pmodelf.fac
-            pmodelf = batman.TransitModel( batpar, jdf, transittype=tr_type, \
-                                           fac=fac )
-            psignalf = pmodelf.light_curve( batpar )
-            psignal = pmodel.light_curve( batpar )
-            resids = z['flux']/( psignal*ttrend )-1. # model=psignal*ttrend*(1+GP)
-            
-            gp = z['zgp']['gp']
-            Alabel = z['zgp']['Alabel_global']
-            logiLlabels = z['zgp']['logiLlabels_global']
-            logiL = []
-            for i in logiLlabels:
-                logiL += [ fitvals[i] ]
-            iL = np.exp( np.array( logiL ) )
-            gp.cpars = { 'amp':fitvals[Alabel], 'iscale':iL }
-            # Currently the GP(t) baseline is hacked in; may be possible to improve:
-            if 'Alabel_baset' in z['zgp']:
-                pdb.set_trace() # this probably needs to be updated
-                Alabel_baset = z['zgp']['Alabel_baset']
-                iLlabel_baset = z['zgp']['iLlabel_baset']
-                gp.cpars['amp_baset'] = fitvals[Alabel_baset]
-                gp.cpars['iscale_baset'] = fitvals[iLlabel_baset]
-            if self.beta_free==True:
-                beta = fitvals[k['beta']]
-            else:
-                beta = 1
-            gp.etrain = z['uncs']*beta
-            gp.dtrain = np.reshape( resids, [ resids.size, 1 ] )
-            mu, sig = gp.predictive( xnew=gp.xtrain, enew=gp.etrain )
-            systematics = ttrend#+mu.flatten()#*( mu.flatten() + 1 )
-            bestfits = { 'psignal':psignal, 'ttrend':ttrend, 'mu':mu.flatten(), \
-                         'jdf':jdf, 'psignalf':psignalf, 'ttrendf':ttrendf }
-            zout = { 'psignal':psignal, 'ttrend':ttrend, 'mu':mu.flatten(), \
-                     'jdf':jdf, 'psignalf':psignalf, 'ttrendf':ttrendf }
-            return { 'arrays':zout, 'batpar':batpar, 'pmodel':pmodel }
-        return EvalModel
-                
-    
-    def GetTmid( self, j, ixsf0, ixsb0 ):
-        if self.syspars['tr_type']=='primary':
-            if ( ixsf0.sum()>0 )*( ixsb0.sum()>0 ):
-                if self.batpars[j]['f'].t0!=self.batpars[j]['b'].t0:
-                    pdb.set_trace()
-                else:
-                    tmid = self.batpars[j]['f'].t0
-            elif ixsf0.sum()>0:
-                tmid = self.batpars[j]['f'].t0
-            else:
-                tmid = self.batpars[j]['b'].t0
-        elif self.syspars['tr_type']=='secondary':
-            if ( ixsf0.sum()>0 )*( ixsb0.sum()>0 ):
-                tmidf = self.batpars[j]['f'].t_secondary
-                tmidb = self.batpars[j]['b'].t_secondary
-                if tmidf!=tmidb:
-                    pdb.set_trace()
-                else:
-                    tmid = tmidf
-            elif ixsf0.sum()>0:
-                tmid = self.batpars[j]['f'].t_secondary
-            else:
-                tmid = self.batpars[j]['b'].t_secondary
-        return tmid
+    def RunMCMC( self ):
+        # Initialise the emcee sampler:
+        mcmc = pyhm.MCMC( self.mbundle )
+        self.freepars = list( mcmc.model.free.keys() )
+        mcmc.assign_step_method( pyhm.BuiltinStepMethods.AffineInvariant )
+        # Define ranges to randomly sample the initial walker values from
+        # (Note: GetParRanges is a function provided by user during setup):
+        self.init_par_ranges = self.GetParRanges( self.mle )
+        # Initial emcee burn-in with single walker group:
+        #init_walkers = self.GetInitWalkers( mcmc )
+        init_walkers = UR.GetInitWalkers( mcmc, self.nwalkers, self.init_par_ranges )
+        mcmc.sample( nsteps=self.nburn1, init_walkers=init_walkers, verbose=False )
+        mle_refined = UR.RefineMLE( mcmc.walker_chain, self.mbundle )
+        self.init_par_ranges = self.GetParRanges( self.mle )
+        init_walkers = UR.GetInitWalkers( mcmc, self.nwalkers, self.init_par_ranges )
+        # Sample for each chain, i.e. group of walkers:
+        self.walker_chains = []
+        print( '\nRunning the MCMC sampling:' )
+        for i in range( self.ngroups ):
+            t1 = time.time()
+            print( '\n... group {0} of {1}'.format( i+1, self.ngroups ) )
+            # Run the burn-in:
+            print( '... running burn-in for {0} steps'.format( self.nburn2 ) )
+            mcmc.sample( nsteps=self.nburn2, init_walkers=init_walkers, \
+                         verbose=False )
+            burn_end_state = UR.GetWalkerState( mcmc )
+            # Run the main chain:
+            print( '... running main chain for {0} steps'.format( self.nsteps ) )
+            mcmc.sample( nsteps=self.nsteps, init_walkers=burn_end_state, \
+                         verbose=False )
+            self.walker_chains += [ mcmc.walker_chain ]
+            t2 = time.time()
+        # Refine the MLE solution using MCMC output:
+        #self.RefineMLEfromGroups()
+        self.mle = UR.RefineMLEfromGroups( self.walker_chains, self.mbundle )
+        self.ExtractMCMCOutput( nburn=0 )
+        self.Save()
+        self.Plot()
+        return None
 
     
     def Plot( self ):
@@ -1601,247 +1995,6 @@ class WFC3WhiteFit():
         return fig, axsl, axsr
 
     
-    def GPLogLike( self, dset, parents, batpar, pmodel, Tmid0, ixs, idkey ):
-        wlc = self.wlcs[dset]
-        config = wlc.config
-        jd = wlc.jd[ixs]
-        tv = wlc.whitelc[self.analysis]['auxvars']['tv'][ixs]
-        flux = wlc.whitelc[self.analysis]['flux'][ixs]
-        uncs = wlc.whitelc[self.analysis]['uncs'][ixs]
-        lintcoeffs = UR.LinTrend( jd, tv, flux )
-        ldbat = self.ldbat
-        #pars = {}
-        #initvals = {}
-        a0k = 'a0_{0}'.format( idkey )
-        parents['a0'] = pyhm.Uniform( a0k, lower=0.5, upper=1.5 )
-        self.mbundle[a0k] = parents['a0']
-        self.initvals[a0k] = lintcoeffs[0]
-        #initvals[a0k] = 1 # DELETE? REVERT?
-        if self.lineartbase[dset]==True:
-            a1k = 'a1_{0}'.format( idkey )
-            parents['a1'] = pyhm.Uniform( a1k, lower=-0.1, upper=0.1 )
-            self.mbundle[a1k] = parents['a1']
-            self.initvals[a1k] = lintcoeffs[1]
-            #initvals[a1k] = 0 # DELETE? REVERT?
-        zgp = self.PrepGP( dset, ixs, idkey )        
-        for k in list( zgp['gpvars'].keys() ):
-            parents[k] = zgp['gpvars'][k]
-        n0 = 30
-        print( 'Model parameters for {0}'.format( dset ).center( 2*n0+1 ) )
-        print( '{0} {1}'.format( 'Local'.rjust( n0 ),'Global'.rjust( n0 ) ) )
-        for k in list( parents.keys() ):
-            try:
-                print( '{0} {1} (free)'\
-                       .format( k.rjust( n0 ), parents[k].name.rjust( n0 ) ) )
-            except:
-                print( '{0} {1} (fixed)'.format( k.rjust( n0 ), k.rjust( n0 ) ) )
-        @pyhm.stochastic( observed=True )
-        def loglikefunc( value=flux, parents=parents ):
-            def logp( value, parents=parents ):
-                logp_val = self.GetGPLogLikelihood( jd, flux, uncs, tv, parents, \
-                                                    zgp, batpar, pmodel, Tmid0, \
-                                                    self.lineartbase[dset] )
-                return logp_val
-        for k in list( zgp['gpvars'].keys() ):
-            l = zgp['gpvars'][k].name
-            self.mbundle[l] = zgp['gpvars'][k]
-            self.initvals[l] = zgp['gpinitvals'][k]
-        parlabels = {}
-        for k in list( parents.keys() ):
-            try:
-                parlabels[k] = parents[k].name
-            except:
-                pass
-        #zout = { 'pars':pars, 'initvals':initvals, 'loglikefunc':loglikefunc, \
-        #         'batpar':batpar, 'pmodel':pmodel, 'jd':jd, 'tv':tv, \
-        #         'flux':flux, 'uncs':uncs, 'parlabels':parlabels, 'zgp':zgp }
-        zout = { 'loglikefunc':loglikefunc, 'batpar':batpar, 'pmodel':pmodel, \
-                 'jd':jd, 'tv':tv, 'flux':flux, 'uncs':uncs, \
-                 'parlabels':parlabels, 'zgp':zgp }
-        return zout
-    
-    def PrepGP( self, dset, ixs, idkey ):
-
-        gp = gp_class.gp( which_type='full' )
-        gp.mfunc = None
-        gp.cfunc = self.gpkernels[dset]
-        gp.mpars = {}
-
-        #auxvars = wlc.whitelc[analysis]['auxvars']
-        cond1 = ( gp.cfunc==kernels.sqexp_invL_ard )
-        cond2 = ( gp.cfunc==kernels.matern32_invL_ard )
-        cond3 = ( gp.cfunc==kernels.sqexp_invL )
-        cond4 = ( gp.cfunc==kernels.matern32_invL )
-        cond5 = ( gp.cfunc==Systematics.custom_kernel_sqexp_invL_ard )
-        cond6 = ( gp.cfunc==Systematics.custom_kernel_mat32_invL_ard )
-        cond7 = ( gp.cfunc==kernels.sqexp_ard )
-        cond8 = ( gp.cfunc==kernels.matern32_ard )
-        if cond1+cond2+cond3+cond4: # implies logiL_prior==True
-            #z = PrepGP_invL( gp, self.gpinputs[dset], self.auxvars, ixs, idkey )
-            z = self.GPinvL( dset, gp, ixs, idkey )
-        elif cond5+cond6: # implieslogiL_prior==True
-            z = self.GPinvLbaset( dset, gp, ixs, idkey )
-            #pdb.set_trace() # todo PrepGP_ard( gp, auxvars, idkey )
-        elif cond7+cond8: # implieslogiL_prior==False also
-            pdb.set_trace() # todo PrepGP_ard( gp, auxvars, idkey )
-        return z
-        
-    def GPinvL( self, dset, gp, ixs, idkey ):
-        """
-        Define GP parameterized in terms of inverse correlation length
-        scales. Although it's not tested, this routine is designed to
-        handle 1D or ND input variables.
-        """ 
-        gpvars = {}
-        gpinitvals = {}
-        Alabel_global = 'Amp_{0}'.format( idkey )        
-        gpvars['Amp'] = pyhm.Gamma( Alabel_global, alpha=1, beta=1e2 )
-        #gpvars[Alabel] = pyhm.Uniform( Alabel, lower=0, upper=1 )
-        gpinitvals['Amp'] = 1e-5
-        xtrain = []
-        logiLlabels_global = []
-        logiLlabels_local = []
-        for i in self.gpinputs[dset]:
-            #v = auxvars[gpinputs[k]]
-            k, label = UR.GetVarKey( i )
-            #v = auxvars[k]
-            v = self.wlcs[dset].whitelc[self.analysis]['auxvars'][k]
-            #ext = '{0}_{1}'.format( label, idkey )
-            vs = ( v-np.mean( v ) )/np.std( v )
-            #logiLlabel = 'logiL{0}'.format( ext )
-            #labeli = ''
-            pname = 'logiL{0}'.format( label )
-            mlabel = '{0}_{1}'.format( pname, idkey )
-            gpvari = UR.DefineLogiLprior( vs[ixs], i, mlabel, \
-                                          priortype='uniform' )
-            gpvars[pname] = gpvari
-            logiLlow = gpvars[pname].parents['lower']
-            logiLupp = gpvars[pname].parents['upper']
-            gpinitvals[pname] = 1e-6# 0.5*(logiLlow+logiLupp)#-1e-8#iLlow + 0.3*( iLupp-iLlow )
-            xtrain += [ vs[ixs] ]
-            logiLlabels_global += [ mlabel ]
-            logiLlabels_local += [ pname ]
-        gp.xtrain = np.column_stack( xtrain )
-        #zout = { 'gp':gp, 'gpvars':gpvars, 'gpinitvals':gpinitvals, \
-        #         'Alabel':Alabel, 'logiLlabels':logiLlabels }
-        zout = { 'gp':gp, 'gpvars':gpvars, 'gpinitvals':gpinitvals, \
-                 'Alabel_global':Alabel_global, 'Alabel_local':'Amp', \
-                 'logiLlabels_global':logiLlabels_global, \
-                 'logiLlabels_local':logiLlabels_local }
-        return zout
-
-    def GPinvLbaset( self, dset, gp, ixs, idkey ):
-        # todo = Should take Alabel and make an Alabel_baset along with
-        # iLlabel_baset and return as output. Adapt from GPinvL().
-        gpvars = {}
-        gpinitvals = {}
-        Alabel = 'Amp_{0}'.format( idkey )
-        Alabel_baset = 'Amp_baset_{0}'.format( idkey )
-        iLlabel_baset = 'iL_baset_{0}'.format( idkey )
-        gpvars[Alabel] = pyhm.Gamma( Alabel, alpha=1, beta=1e2 )
-        #gpvars[Alabel] = pyhm.Uniform( Alabel, lower=0, upper=1 )
-        gpvars[Alabel_baset] = pyhm.Gamma( Alabel_baset, alpha=1, beta=1e3 )
-        gpvars[iLlabel_baset] = pyhm.Uniform( iLlabel_baset, lower=0, upper=2 )
-        gpinitvals[Alabel] = 1e-5
-        gpinitvals[Alabel_baset] = 5e-4
-        gpinitvals[iLlabel_baset] = 0.2
-        tv = self.wlcs[dset].tv
-        xtrain = [ tv[ixs] ]
-        logiLlabels = []
-        for i in self.gpinputs[dset]:
-            #v = auxvars[gpinputs[k]]
-            k, label = UR.GetVarKey( i )
-            #v = auxvars[k]
-            v = self.wlcs[dset].whitelc[self.analysis]['auxvars'][k][ixs]
-            ext = '{0}_{1}'.format( label, idkey )
-            vs = ( v-np.mean( v ) )/np.std( v )
-            logiLlabel = 'logiL{0}'.format( ext )
-            gpvari = UR.DefineLogiLprior( vs, i, logiLlabel, \
-                                          priortype='uniform' )
-            gpvars[logiLlabel] = gpvari
-            logiLlow = gpvars[logiLlabel].parents['lower']
-            logiLupp = gpvars[logiLlabel].parents['upper']
-            #gpinitvals[logiLlabel] = 1e-5#0.5*(logiLlow+logiLupp)#-1e-8#iLlow + 0.3*( iLupp-iLlow )
-            gpinitvals[logiLlabel] = 0.5*(logiLlow+logiLupp)#-1e-8#iLlow + 0.3*( iLupp-iLlow )
-            xtrain += [ vs[ixs] ]
-            logiLlabels += [ logiLlabel ]
-        gp.xtrain = np.column_stack( xtrain )
-        zout = { 'gp':gp, 'gpvars':gpvars, 'gpinitvals':gpinitvals, \
-                 'Alabel':Alabel, 'logiLlabels':logiLlabels, \
-                 'Alabel_baset':Alabel_baset, 'iLlabel_baset':iLlabel_baset }
-        return zout
-
-    
-    def RunMLE( self ):
-        if self.prelim_fit==True:
-            mp = pyhm.MAP( self.mbundle )
-            for k in list( self.initvals.keys() ):
-                mp.model.free[k].value = self.initvals[k]
-            print( '\nRunning MLE fit...' )
-            print( '\nFree parameters: name, value, parents, logprior' )
-            for k in mp.model.free.keys():
-                print( k, mp.model.free[k].value, mp.model.free[k].parents, \
-                       mp.model.free[k].logp() )
-            print( '\noptmising...' )
-            mp.fit( xtol=1e-5, ftol=1e-5, maxfun=10000, maxiter=10000 )
-            print( 'Done.' )
-            print( '\nMLE results:' )
-            self.mle = {}
-            for k in mp.model.free.keys():
-                self.mle[k] = mp.model.free[k].value
-        else:
-            prelim_fpaths = self.GetFilePaths( prelim_fit=True )
-            print( '\nReading in preliminary MLE fit:' )
-            print( prelim_fpaths[1] )
-            ifile = open( prelim_fpaths[1], 'rb' )
-            prelim = pickle.load( ifile )
-            ifile.close()
-            self.mle = prelim['mle']
-        for k in list( self.mle.keys() ):
-            print( k, self.mle[k] )
-        print( 'Done.\n' )                
-        return None
-
-    
-    def RunMCMC( self ):
-        # Initialise the emcee sampler:
-        mcmc = pyhm.MCMC( self.mbundle )
-        self.freepars = list( mcmc.model.free.keys() )
-        mcmc.assign_step_method( pyhm.BuiltinStepMethods.AffineInvariant )
-        # Define ranges to randomly sample the initial walker values from
-        # (Note: GetParRanges is a function provided by user during setup):
-        self.init_par_ranges = self.GetParRanges( self.mle )
-        # Initial emcee burn-in with single walker group:
-        #init_walkers = self.GetInitWalkers( mcmc )
-        init_walkers = UR.GetInitWalkers( mcmc, self.nwalkers, self.init_par_ranges )
-        mcmc.sample( nsteps=self.nburn1, init_walkers=init_walkers, verbose=False )
-        mle_refined = UR.RefineMLE( mcmc.walker_chain, self.mbundle )
-        self.init_par_ranges = self.GetParRanges( self.mle )
-        init_walkers = UR.GetInitWalkers( mcmc, self.nwalkers, self.init_par_ranges )
-        # Sample for each chain, i.e. group of walkers:
-        self.walker_chains = []
-        print( '\nRunning the MCMC sampling:' )
-        for i in range( self.ngroups ):
-            t1 = time.time()
-            print( '\n... group {0} of {1}'.format( i+1, self.ngroups ) )
-            # Run the burn-in:
-            print( '... running burn-in for {0} steps'.format( self.nburn2 ) )
-            mcmc.sample( nsteps=self.nburn2, init_walkers=init_walkers, \
-                         verbose=False )
-            burn_end_state = UR.GetWalkerState( mcmc )
-            # Run the main chain:
-            print( '... running main chain for {0} steps'.format( self.nsteps ) )
-            mcmc.sample( nsteps=self.nsteps, init_walkers=burn_end_state, \
-                         verbose=False )
-            self.walker_chains += [ mcmc.walker_chain ]
-            t2 = time.time()
-        # Refine the MLE solution using MCMC output:
-        #self.RefineMLEfromGroups()
-        self.mle = UR.RefineMLEfromGroups( self.walker_chains, self.mbundle )
-        self.ExtractMCMCOutput( nburn=0 )
-        self.Save()
-        self.Plot()
-        return None
 
     def LoadFromFile( self ):
         mcmc_fpath, mle_fpath = self.GetFilePaths( prelim_fit=self.prelim_fit )
@@ -2012,63 +2165,6 @@ class WFC3WhiteFit():
         self.grs = grs
         self.chain = chaindict
         return None
-    
-    
-    def EvalPsignalPrimary( self, jd, parents, batpar, pmodel, Tmid0 ):
-        batpar.rp = parents['RpRs']
-        batpar.t0 = Tmid0 + parents['delT']
-        batpar.a = parents['aRs']
-        batpar.inc = np.rad2deg( np.arccos( parents['b']/parents['aRs'] ) )
-        if batpar.limb_dark=='quadratic':
-            ldpars = np.array( [ parents['gam1'], parents['gam2'] ] )
-        elif batpar.limb_dark=='nonlinear':
-            ldpars = np.array( [ parents['c1'], parents['c2'], \
-                                 parents['c3'], parents['c4'] ] )
-        batpar.u = ldpars
-        psignal = pmodel.light_curve( batpar )
-        return psignal
-
-    def EvalPsignalSecondary( self, jd, parents, batpar, pmodel, Tmid0 ):
-        batpar.fp = parents['EcDepth']
-        batpar.t_secondary = Tmid0 + parents['delT']
-        batpar.a = parents['aRs']
-        batpar.inc = np.rad2deg( np.arccos( parents['b']/parents['aRs'] ) )
-        
-        psignal = pmodel.light_curve( batpar )
-        return psignal
-    
-    def GetGPLogLikelihood( self, jd, flux, uncs, tv, parents, zgp, \
-                            batpar, pmodel, Tmid0, lineartbase ):
-        if lineartbase==True:
-            ttrend = parents['a0'] + parents['a1']*tv#[ixs]
-        else:
-            ttrend = parents['a0']
-        if self.syspars['tr_type']=='primary':
-            if batpar.limb_dark=='quadratic':
-                batpar.u = np.array( [ parents['gam1'], parents['gam2'] ] )
-            elif batpar.limb_dark=='nonlinear':
-                batpar.u = np.array( [ parents['c1'], parents['c2'], \
-                                       parents['c3'], parents['c4'] ] )
-            psignal = self.EvalPsignalPrimary( jd, parents, batpar, pmodel, Tmid0 )
-        elif self.syspars['tr_type']=='secondary':
-            psignal = self.EvalPsignalSecondary( jd, parents, batpar, pmodel, Tmid0 )
-        else:
-            pdb.set_trace()
-        #resids = flux - psignal*ttrend
-        resids = flux/( psignal*ttrend )-1. # model=psignal*ttrend*(1+GP)
-        logiL = []
-        for i in zgp['logiLlabels_local']:
-            logiL += [ parents[i] ]
-        iL = np.exp( np.array( logiL ) )
-        gp = zgp['gp']
-        gp.cpars = { 'amp':parents[zgp['Alabel_local']], 'iscale':iL }
-        if 'Alabel_baset' in zgp:
-            gp.cpars['amp_baset'] = parents[zgp['Alabel_baset']]
-            gp.cpars['iscale_baset'] = parents[zgp['iLlabel_baset']]
-        gp.etrain = uncs*parents['beta']
-        gp.dtrain = np.reshape( resids, [ resids.size, 1 ] )
-        logp_val = gp.logp_builtin()
-        return logp_val
 
 
 class WFC3SpecLightCurves():
@@ -2078,7 +2174,7 @@ class WFC3SpecLightCurves():
         self.dsetname = ''
         self.spec1d_fpath = ''
         self.config = None
-        self.ss_dispboundixs = []
+        self.ss_dispbound_ixs = []
         self.ss_maxshift_pix = 1
         self.ss_dshift_pix = 0.001
         self.ss_smoothing_fwhm = None
@@ -2285,8 +2381,8 @@ class WFC3SpecLightCurves():
         self.ss_vstretch[scan] = np.zeros( nframes )
         self.ss_dspec[scan] = np.zeros( [ nframes, ndisp ] )
         self.ss_enoise[scan] = np.zeros( [ nframes, ndisp ] )
-        ix0 = self.ss_dispboundixs[0]
-        ix1 = self.ss_dispboundixs[1]
+        ix0 = self.ss_dispbound_ixs[0]
+        ix1 = self.ss_dispbound_ixs[1]
         A = np.ones( [ndisp,2] )
         #A = np.column_stack( [ A0, x ] )
         coeffs = []
@@ -2607,7 +2703,7 @@ class WFC3Spectra():
         self.smoothing_fwhm = None
         self.trim_disp_ixs = []
         self.trim_crossdisp_ixs = []
-        self.ss_dispboundixs = []
+        self.ss_dispbound_ixs = []
         self.bg_crossdisp_ixs = []
         self.bg_disp_ixs = []
         self.zap2d_nsig_transient = 10
@@ -2699,7 +2795,7 @@ class WFC3Spectra():
         return self
         
     def ShiftStretch( self ):
-        d1, d2 = self.ss_dispboundixs
+        d1, d2 = self.ss_dispbound_ixs
         dpix_max = 1
         dwav_max = dpix_max*self.dispersion_micrppix
         nshifts = int( np.round( 2*dpix_max*(1e3)+1 ) ) # 0.001 pix
@@ -2758,7 +2854,7 @@ class WFC3Spectra():
         A = np.ones( [ ymeas.size, 2 ] )
         b = np.reshape( ymeas/ymeas.max(), [ ymeas.size, 1 ] )
         ss_fits = []
-        ix0, ix1 = self.ss_dispboundixs
+        ix0, ix1 = self.ss_dispbound_ixs
         for i in range( nshifts ):
             # Assuming the default x-solution is x0, shift the model
             # array by dx. If this provides a good match to the data,

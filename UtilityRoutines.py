@@ -180,6 +180,30 @@ def SplitHSTOrbixs( thrs ):
     return orbixs
 
 
+def DERamp( thrs, torb, pars ):
+    """
+    Double-exponential ramp function from de Wit et al (2018),
+    """
+    a1 = pars[0]
+    a2 = pars[1]
+    a3 = pars[2]
+    a4 = pars[3]
+    a5 = pars[4]
+    a6 = pars[5]
+    a7 = pars[6]
+    rvt = rvFunc( thrs, a1, a2 )
+    r0t = r0Func( thrs, torb, rvt, a3, a4, a5 )
+    lintrend = a6+a7*thrs
+    return rvt*r0t*lintrend
+
+def rvFunc( thrs, a1, a2 ):
+    return 1+a1*np.exp( -thrs/a2 )
+
+def r0Func( thrs, torb, rvt, a3, a4, a5 ):
+    return 1+a3*np.exp( -( torb-a5 )/(a4*rvt) )
+
+
+
 def BTSettlBinDown( fpathu, fpathb ):
     d = np.loadtxt( fpathu )
     wav = d[:,0]*(1e-4) # convert A to micr

@@ -827,6 +827,7 @@ class WFC3WhiteFitLM():
         self.orbpars = ''
         self.beta_free = True
         self.Tmid0 = {}
+        self.ntrials = 10
         #self.batpar = {} # maybe have a dict of these for each dset
         #self.pmodel = {}
         self.lineartbase = {} # set True/False for each visit
@@ -907,9 +908,6 @@ class WFC3WhiteFitLM():
         """
         dsets = list( self.wlcs.keys() )
         ndsets = len( dsets )
-        #thrs = data[:,1]
-        #torb = data[:,2]
-        #flux = data[:,3]
         ###############################
         # Set up the global planet parameters:
         plabels, pfixed, ppars_init, pixs = self.PrepPlanetPars( self.syspars['tr_type'] )
@@ -1061,8 +1059,6 @@ class WFC3WhiteFitLM():
             pfit += [ pfiti ]
         return pfit[np.argmin(rms)]
 
-
-
     
     def PreFitting( self, niter=2, sigcut=10 ):
         ixsd = self.data_ixs
@@ -1071,7 +1067,7 @@ class WFC3WhiteFitLM():
         syspars = self.syspars
         data = self.data
         for i in range( niter ):
-            self.FitModel()
+            self.FitModel( save_to_file=False )
             pars_prelim = self.pars_fit['pvals']
             mfit = self.CalcModel( pars_prelim )
             ffit = mfit['psignal']*mfit['systematics']
@@ -1090,17 +1086,16 @@ class WFC3WhiteFitLM():
             print( 'Iteration={0:.0f}, Nculled={1:.0f}'.format( i+1, ncull ) )
         npar = len( pars_prelim )
         print( 'Locating minimim chi^2:' )
-        ntrials = 10
-        chi2 = np.zeros( ntrials )
-        pars_trials = np.zeros( [ ntrials, npar ] )
-        self.modelfit = {}
-        for i in range( ntrials ):
-            print( i+1, ntrials )
+        chi2 = np.zeros( self.ntrials )
+        pars_trials = np.zeros( [ self.ntrials, npar ] )
+        self.model_fit = {}
+        for i in range( self.ntrials ):
+            print( i+1, self.ntrials )
             pars0 = np.zeros( npar )
             # Randomly perturb the starting values:
             for j in range( npar ):
                 pars0[j] = pars_prelim[j] + 0.1*np.random.randn()*np.abs( pars_prelim[j] )
-            self.FitModel()
+            self.FitModel( save_to_file=False )
             chi2[i] = self.CalcChi2()
             pars_trials[i,:] = self.pars_fit['pvals']
         ix = np.argmin( chi2 )
@@ -1119,13 +1114,13 @@ class WFC3WhiteFitLM():
             print( '{0:.2f} for {1}'.format( rescale[k], k ) )
         print( '{0}\n'.format( 50*'#' ) )    
         self.pars_init = pars_fit
-        self.modelfit = None # to avoid any confusion
+        self.model_fit = None # to avoid any confusion
         self.pars_fit = None # to avoid any confusion
         self.data_ixs = ixsd
         return None
 
     def CalcChi2( self ):
-        ffit = self.modelfit['psignal']*self.modelfit['systematics']
+        ffit = self.model_fit['psignal']*self.model_fit['systematics']
         ixsd = self.data_ixs
         chi2 = 0
         for k in list( ixsd.keys() ):
@@ -1133,8 +1128,9 @@ class WFC3WhiteFitLM():
             uncsk = self.data[ixsd[k],4]
             chi2 += np.sum( ( residsk/uncsk )**2. )
         return chi2
+
     
-    def FitModel( self ):
+    def FitModel( self, save_to_file=False ):
         def NormDeviates( pars, fjac=None, data=None, ixsp=None, ixsd=None, \
                           pmodels=None, batpars=None, Tmidlits=None ):
             """
@@ -1163,11 +1159,137 @@ class WFC3WhiteFitLM():
         print( 'status = {0}\n{1}\n'.format( m.status, 50*'#' ) )
         self.pars_fit = { 'pvals':m.params, 'puncs':m.perror, 'pcov':m.covar, \
                           'ndof':m.dof, 'status':m.status }
-        self.modelfit = self.CalcModel( m.params )
+        self.model_fit = self.CalcModel( m.params )
+        if save_to_file==True:
+            self.Plot()
         return None
 
+    def Plot( self ):
+        #plt.ioff()
+        self.UpdateBatpars( self.pars_fit['pvals'] )
+        analysis = self.analysis
+        dsets = list( self.wlcs.keys() )
+        nvisits = len( dsets )
+        jd = self.data[:,0]
+        thrs = self.data[:,1]
+        flux = self.data[:,3]
+        uncs = self.data[:,4]
+        ixsd = self.data_ixs
+        pfit = self.model_fit['psignal']
+        sfit = self.model_fit['systematics']
+        ffit = pfit*sfit
+        resids = flux-ffit
+        cjoint = 'Cyan'#0.8*np.ones( 3 )
+        for i in range( nvisits ):
+            fig = plt.figure( figsize=[6,9] )
+            xlow = 0.17
+            axh12 = 0.35
+            axh3 = axh12*0.5
+            axw = 0.80
+            ylow1 = 1-0.03-axh12
+            ylow2 = ylow1-0.02-axh12
+            ylow3 = ylow2-0.02-axh3
+            ax1 = fig.add_axes( [ xlow, ylow1, axw, axh12 ] )
+            ax2 = fig.add_axes( [ xlow, ylow2, axw, axh12 ], sharex=ax1 )
+            ax3 = fig.add_axes( [ xlow, ylow3, axw, axh3 ], sharex=ax1 )
+            scankeys = self.scankeys[dsets[i]]
+            nscans = len( scankeys )
+            tv = []
+            tvf = []
+            psignalf = []
+            for k in self.scankeys[dsets[i]]:#range( nscans ):
+                idkey = '{0}{1}'.format( dsets[i], k )
+                ixsik = ixsd[idkey]
+                if k=='f':
+                    mfc = np.array( [217,240,211] )/256.
+                    mec = np.array( [27,120,55] )/256.
+                elif k=='b':
+                    mfc = np.array( [231,212,232] )/256.
+                    mec = np.array( [118,42,131] )/256.
+                jdfk = np.linspace( jd[ixsik].min(), jd[ixsik].max(), 300 )
+                if self.syspars['tr_type']=='primary':
+                    Tmid = self.batpars[idkey].t0
+                elif self.syspars['tr_type']=='secondary':
+                    Tmid = self.batpars[idkey].t_secondary
+                else:
+                    pdb.set_trace()
+                tvk = 24*( jd[ixsik]-Tmid )
+                tvfk = 24*( jdfk-Tmid )
+                tv += [ tvk ]
+                tvf += [ tvfk ]
+                ax1.plot( tvk, flux[ixsik], 'o', mec=mec, mfc=mfc )
+                oixs = UR.SplitHSTOrbixs( thrs[ixsik] )
+                norb = len( oixs )
+                for j in range( norb ):
+                    ax1.plot( tvk[oixs[j]], ffit[ixsik][oixs[j]], '-', color=cjoint )
+                ax2.plot( tvk, flux[ixsik]/sfit[ixsik], 'o', mec=mec, mfc=mfc )
+                pmodfk = batman.TransitModel( self.batpars[idkey], jdfk, \
+                                              transittype=self.syspars['tr_type'] )
+                psignalfk = pmodfk.light_curve( self.batpars[idkey] )
+                psignalf += [ psignalfk ]
+                ax3.errorbar( tvk, (1e6)*resids[ixsik], \
+                              yerr=(1e6)*uncs[ixsik], fmt='o', \
+                              mec=mec, ecolor=mec, mfc=mfc )
+                ax3.axhline( 0, ls='-', color=cjoint, zorder=0 )
+            tvf = np.concatenate( tvf )
+            psignalf = np.concatenate( psignalf )
+            ixs = np.argsort( tvf )
+            ax2.plot( tvf[ixs], psignalf[ixs], '-', color=cjoint, zorder=0 )
+            plt.setp( ax1.xaxis.get_ticklabels(), visible=False )
+            plt.setp( ax2.xaxis.get_ticklabels(), visible=False )
+            titlestr = '{0}'.format( dsets[i] )
+            fig.text( xlow+0.5*axw, ylow1+axh12*1.01, titlestr, rotation=0, fontsize=18, \
+                      verticalalignment='bottom', horizontalalignment='center' )
+        pdb.set_trace()
+        return None
 
     def CalcModel( self, pars ):#, data, ixsp, ixsd, pmodels, batpars, Tmidlits ):
+        """
+        For a parameter array for a specific dataset, the parameters
+        are *always* the following (at least for now): 
+           RpRs, aRs, b, ldcoeff1, ..., ldcoeffN, delT, l1, l2, a1, a2, a3, a4, a5
+        or:
+           EcDepth, delT, l1, l2, a1, a2, a3, a4, a5
+        So you can always unpack these in this order and send them as
+        inputs to their appropriate functions. 
+        """
+        ndat, nvar = np.shape( self.data )
+        batp = self.batpars
+        pmod = self.pmodels
+        psignal = np.zeros( ndat )
+        systematics = np.zeros( ndat )
+        jd = self.data[:,0]
+        thrs = self.data[:,1]
+        torb = self.data[:,2]
+        flux = self.data[:,3]
+        uncs = self.data[:,4]
+        dsets = list( self.wlcs.keys() )
+        ndsets = len( dsets )
+        self.UpdateBatpars( pars )
+
+        for k in range( ndsets ):
+            dset = dsets[k]
+            Tmid0k = self.Tmid0[dset]
+            for j in range( len( self.scankeys[dset] ) ):
+                idkey = '{0}{1}'.format( dset, self.scankeys[dset][j] )
+                ixsdk = self.data_ixs[idkey]
+                parsk = pars[self.par_ixs[idkey]]
+                if pmod[idkey].transittype==1:
+                    if batp[idkey].limb_dark=='quadratic':
+                        m = 2
+                    elif batp[idkey].limb_dark=='nonlinear':
+                        m = 4
+                    else:
+                        pdb.set_trace()
+                    s = 4+m # RpRs, aRs, b, delT
+                else:
+                    s = 2 # EcDepth, delT
+                psignal[ixsdk] = pmod[idkey].light_curve( batp[idkey] )
+                # Evaluate the systematics signal:
+                systematics[ixsdk] = UR.DERamp( thrs[ixsdk], torb[ixsdk], parsk[s:] )
+        return { 'psignal':psignal, 'systematics':systematics }
+
+    def CalcModelBACKUP( self, pars ):#, data, ixsp, ixsd, pmodels, batpars, Tmidlits ):
         """
         For a parameter array for a specific dataset, the parameters
         are *always* the following (at least for now): 
@@ -1199,7 +1321,7 @@ class WFC3WhiteFitLM():
                 parsk = pars[self.par_ixs[idkey]]
                 # Evaluate the planet signal:
                 if pmod[idkey].transittype==1:
-                    # Primary transits have RpRs, aRs, inc and optionally limb darkening:
+                    # Primary transits have RpRs, aRs, b, delT, limb darkening:
                     batp[idkey].rp = parsk[0]
                     batp[idkey].a = parsk[1]
                     batp[idkey].inc = np.rad2deg( np.arccos( parsk[2]/batp[idkey].a ) )
@@ -1213,7 +1335,7 @@ class WFC3WhiteFitLM():
                     batp[idkey].t0 = Tmid0k + parsk[3+m]
                     s = 4+m
                 elif pmod[idkey].transittype==2:
-                    # Secondary eclipses only have the eclipse depth and mid-time:
+                    # Secondary eclipses only have the eclipse depth and delT:
                     batp[idkey].fp = parsk[0]
                     batp[idkey].t_secondary = Tmid0k + parsk[1]
                     #Tmidi = batp[idkey].t_secondary
@@ -1224,8 +1346,42 @@ class WFC3WhiteFitLM():
                 # Evaluate the systematics signal:
                 systematics[ixsdk] = UR.DERamp( thrs[ixsdk], torb[ixsdk], parsk[s:] )
         return { 'psignal':psignal, 'systematics':systematics }
-
-
+    
+    def UpdateBatpars( self, pars ):
+        batp = self.batpars
+        pmod = self.pmodels
+        dsets = list( self.wlcs.keys() )
+        ndsets = len( dsets )
+        for k in range( ndsets ):
+            dset = dsets[k]
+            Tmid0k = self.Tmid0[dset]
+            for j in range( len( self.scankeys[dset] ) ):
+                idkey = '{0}{1}'.format( dset, self.scankeys[dset][j] )
+                ixsdk = self.data_ixs[idkey]
+                parsk = pars[self.par_ixs[idkey]]
+                # Evaluate the planet signal:
+                if pmod[idkey].transittype==1:
+                    # Primary transits have RpRs, aRs, inc and optionally limb darkening:
+                    batp[idkey].rp = parsk[0]
+                    batp[idkey].a = parsk[1]
+                    batp[idkey].inc = np.rad2deg( np.arccos( parsk[2]/batp[idkey].a ) )
+                    if batp[idkey].limb_dark=='quadratic':
+                        m = 2
+                    elif batp[idkey].limb_dark=='nonlinear':
+                        m = 4
+                    else:
+                        pdb.set_trace()
+                    batp[idkey].u = parsk[3:3+m]
+                    batp[idkey].t0 = Tmid0k + parsk[3+m]
+                    #s = 4+m
+                elif pmod[idkey].transittype==2:
+                    # Secondary eclipses only have the eclipse depth and mid-time:
+                    batp[idkey].fp = parsk[0]
+                    batp[idkey].t_secondary = Tmid0k + parsk[1]
+                else:
+                    pdb.set_trace()
+        self.batpars = batp
+        return None
     
     def SetupLDPars( self ):
         dsets = list( self.wlcs.keys() )

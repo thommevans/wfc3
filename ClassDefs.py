@@ -1055,7 +1055,6 @@ class WFC3WhiteFitLM():
                       (1e-3)*np.random.randn(), 0.1+0.5*np.random.random(), \
                       (1.+5*np.random.random() )/60., l1, l2 ]
             pfiti = scipy.optimize.fmin( RMS, pinit, maxiter=1e4 )#, xtol=1e-5, ftol=1e-5 )
-            #mfit = RampModel( thrs, torb, pfiti )
             mfit = UR.DERamp( thrs, torb, pfiti )
             resids = flux-mfit
             rms[i] = np.sqrt( np.mean( resids**2. ) )
@@ -1071,15 +1070,11 @@ class WFC3WhiteFitLM():
         batp = self.batpars
         syspars = self.syspars
         data = self.data
-        #pars_init, labels, fixed, data, ixsp, ixsd, pmodels, batpars, syspars, Tmidlits, niter=2, sigcut=10 ):
         for i in range( niter ):
-            fitresults = self.FitModel()
-            #fitresults = FitModel( self.pars_init, self.par_labels, self.fixed, \
-            #                       self.data, self.par_ixs, self.data_ixs, \
-            #                       self.pmodels, self.batpars, Tmidlits )
-            pars_fit = fitresults['pvals']
-            mfit = self.CalcModel( pars_fit )#, data, ixsp, ixsd, pmodels, batpars, Tmidlits )
-            ffit = mfit[0]*mfit[1]
+            self.FitModel()
+            pars_prelim = self.pars_fit['pvals']
+            mfit = self.CalcModel( pars_prelim )
+            ffit = mfit['psignal']*mfit['systematics']
             ncull = 0
             ndat = 0
             for k in list( ixsd.keys() ):
@@ -1093,30 +1088,27 @@ class WFC3WhiteFitLM():
                 ixsd[k] = ixsd[k][ixs]
                 ndat += len( residsk )
             print( 'Iteration={0:.0f}, Nculled={1:.0f}'.format( i+1, ncull ) )
-        npar = len( pars_fit )
+        npar = len( pars_prelim )
         print( 'Locating minimim chi^2:' )
         ntrials = 10
         chi2 = np.zeros( ntrials )
         pars_trials = np.zeros( [ ntrials, npar ] )
+        self.modelfit = {}
         for i in range( ntrials ):
             print( i+1, ntrials )
             pars0 = np.zeros( npar )
+            # Randomly perturb the starting values:
             for j in range( npar ):
-                pars0[j] = pars_fit[j] + 0.1*np.random.randn()*np.abs( pars_fit[j] )
-            #self.fitresults = self.FitModel( parsfit, labels, fixed, self.data, \
-            #                            ixsp, ixsd, pmodels, batp, Tmidlits )
-            self.fitresults = self.FitModel()
-            #mfit = CalcModel( fitresults[0], data, ixsp, ixsd, pmodels, batpars, Tmidlits )
-            mfit = self.CalcModel( fitresults['pvals'] )
-            self.fitresults['psignal'] = mfit[0]
-            self.fitresults['systematics'] = mfit[1]
-            ffit = mfit[0]*mfit[1]
+                pars0[j] = pars_prelim[j] + 0.1*np.random.randn()*np.abs( pars_prelim[j] )
+            self.FitModel()
             chi2[i] = self.CalcChi2()
-            pars_trials[i,:] = fitresults['pvals']
+            pars_trials[i,:] = self.pars_fit['pvals']
         ix = np.argmin( chi2 )
         print( 'min(chi^2) = {0:.2f} for {1:.0f} dof'.format( chi2[ix], ndat-npar ) )
         print( 'i.e. reduced(chi^2) = {0:.2f}'.format( chi2[ix]/float( ndat-npar ) ) )
         pars_fit = pars_trials[ix,:]
+        mfit = self.CalcModel( pars_fit )
+        ffit = mfit['psignal']*mfit['systematics']
         rescale = {}
         print( '\n{0}\nRescaling measurement uncertainties by:\n'.format( 50*'#' ) )
         for k in list( ixsd.keys() ):
@@ -1127,11 +1119,13 @@ class WFC3WhiteFitLM():
             print( '{0:.2f} for {1}'.format( rescale[k], k ) )
         print( '{0}\n'.format( 50*'#' ) )    
         self.pars_init = pars_fit
+        self.modelfit = None # to avoid any confusion
+        self.pars_fit = None # to avoid any confusion
         self.data_ixs = ixsd
         return None
 
-    def CalcChi2( self ):#data, ffit, ixsd ):
-        ffit = self.fitresults['psignal']*self.fitresults['systematics']
+    def CalcChi2( self ):
+        ffit = self.modelfit['psignal']*self.modelfit['systematics']
         ixsd = self.data_ixs
         chi2 = 0
         for k in list( ixsd.keys() ):
@@ -1146,8 +1140,8 @@ class WFC3WhiteFitLM():
             """
             Function defined in format required by mpfit.
             """
-            p, s = self.CalcModel( pars )
-            fullmodel = p*s
+            m = self.CalcModel( pars )
+            fullmodel = m['psignal']*m['systematics']
             resids = data[:,3]-fullmodel
             status = 0
             return resids/data[:,4]
@@ -1162,15 +1156,15 @@ class WFC3WhiteFitLM():
         m = mpfit( NormDeviates, self.pars_init, functkw=fa, parinfo=parinfo, \
                    maxiter=1e4, quiet=True )
         if (m.status <= 0): print( 'error message = ', m.errmsg )
-        #fit = [ m.params, m.perror, m.covar, m.dof, m.status ]
-        fit = { 'pvals':m.params, 'puncs':m.perror, 'pcov':m.covar, \
-                'ndof':m.dof, 'status':m.status }
         print( '\n{0}\nFit results:'.format( 50*'#' ) )
         for i in range( npar ):
-            print( '{0} = {1} +/- {2}'.format( self.par_labels[i], fit['pvals'][i], \
-                                               fit['puncs'][i] ) )
-        print( 'status = {0}\n{1}\n'.format( fit['status'], 50*'#' ) )
-        return fit
+            print( '{0} = {1} +/- {2}'.format( self.par_labels[i], m.params[i], \
+                                               m.perror[i] ) )
+        print( 'status = {0}\n{1}\n'.format( m.status, 50*'#' ) )
+        self.pars_fit = { 'pvals':m.params, 'puncs':m.perror, 'pcov':m.covar, \
+                          'ndof':m.dof, 'status':m.status }
+        self.modelfit = self.CalcModel( m.params )
+        return None
 
 
     def CalcModel( self, pars ):#, data, ixsp, ixsd, pmodels, batpars, Tmidlits ):
@@ -1193,7 +1187,6 @@ class WFC3WhiteFitLM():
         torb = self.data[:,2]
         flux = self.data[:,3]
         uncs = self.data[:,4]
-        #dsets = list( self.par_ixs.keys() )
         dsets = list( self.wlcs.keys() )
         ndsets = len( dsets )
 
@@ -1228,13 +1221,9 @@ class WFC3WhiteFitLM():
                 else:
                     pdb.set_trace()
                 psignal[ixsdk] = pmod[idkey].light_curve( batp[idkey] )
-                #psignal += [ pmodels[idkey].light_curve( batpars[idkey] ) ]
                 # Evaluate the systematics signal:
                 systematics[ixsdk] = UR.DERamp( thrs[ixsdk], torb[ixsdk], parsk[s:] )
-                #systematics += [ DERamp( thrs[ixsdatk], torb[ixsdatk], parsk[s:] ) ]
-        #psignal = np.concatenate( psignal )
-        #systematics = np.concatenate( systematics )
-        return psignal, systematics
+        return { 'psignal':psignal, 'systematics':systematics }
 
 
     

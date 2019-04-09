@@ -832,7 +832,6 @@ class WFC3WhiteFitLM():
         #self.pmodel = {}
         self.lineartbase = {} # set True/False for each visit
         self.tr_type = ''
-        self.prelim_fit = False
         self.ngroups = 5
         self.nwalkers = 100
         self.nburn1 = 100
@@ -939,16 +938,32 @@ class WFC3WhiteFitLM():
         """
         # DE code currently hard-wired for single Rp/Rs and limb darkening
         # parameters across all datasets, which implicity assumes same
-        # config, i.e. passband, for all datasets; TODO = generalize:
+        # config, i.e. passband, for all datasets; TODO = generalize.
         dsets = list( self.wlcs.keys() )
         config = self.wlcs[dsets[0]].config
         ldpars = self.ldpars[config]
+        ppar_init = []
         if transittype=='primary':
             s = 5
             if self.ld.find( 'quad' )>=0:
                 ppar_labels = [ 'RpRs', 'aRs', 'b', 'gam1', 'gam2' ]
-                ppar_init = np.array( [ self.ppar_init['RpRs'], self.ppar_init['aRs'], \
-                                        self.ppar_init['b'], ldpars[0], ldpars[1] ] )
+                for l in [ 'RpRs', 'aRs', 'b' ]:
+                    try:
+                        ppar_init += [ self.ppar_init[l] ]
+                    except:
+                        ppar_init += [ self.syspars[l] ]
+                ppar_init += [ ldpars[0], ldpars[1] ]
+                ppar_init = np.array( ppar_init )
+                #if self.ppar_init is not None:
+                #    ppar_init = np.array( [ self.ppar_init['RpRs'], \
+                #                            self.ppar_init['aRs'], \
+                #                            self.ppar_init['b'], \
+                #                            ldpars[0], ldpars[1] ] )
+                #else:
+                #    ppar_init = np.array( [ self.syspars['RpRs'], \
+                #                            self.syspars['aRs'], \
+                #                            self.syspars['b'], \
+                #                            ldpars[0], ldpars[1] ] )
                 if self.ld.find( 'fixed' )>=0:
                     if self.orbpars.find( 'free' )>=0:
                         ppar_fixed = np.array( [ 0, 0, 0, 1, 1 ] )
@@ -963,8 +978,14 @@ class WFC3WhiteFitLM():
                 pdb.set_trace() # TODO - implement 4-parameter LD
         elif transittype=='secondary':
             ppar_labels = [ 'EcDepth', 'aRs', 'b' ]
-            ppar_init = np.array( [ self.ppar_init['EcDepth'], self.ppar_init['aRs'], \
-                                    self.ppar_init['b'] ] )
+            for l in [ 'EcDepth', 'aRs', 'b' ]:
+                try:
+                    ppar_init += [ self.ppar_init[l] ]
+                except:
+                    ppar_init += [ self.syspars[l] ]
+            ppar_init = np.array( ppar_init )
+            #ppar_init = np.array( [ self.ppar_init['EcDepth'], self.ppar_init['aRs'], \
+            #                        self.ppar_init['b'] ] )
             if self.orbpars.find( 'fixed' )>=0:
                 ppar_fixed = np.array( [ 0, 1, 1 ] )
             else:
@@ -978,11 +999,16 @@ class WFC3WhiteFitLM():
         ndsets = len( dsets )
         pparsv = []
         for i in range( ndsets ):
-            delTk = self.ppar_init['delT_{0}'.format( dsets[i] )]
+            #if self.ppar_init is not None:
+            try:
+                delTk = self.ppar_init['delT_{0}'.format( dsets[i] )]
+            except:
+                delTk = 0
             ppar_init = np.concatenate( [ ppar_init, [ delTk ] ] )
             pixs += [ np.concatenate( [ pixsg, [ ng+i ] ] ) ]
             ppar_fixed = np.concatenate( [ ppar_fixed, [0] ] ) # delT free for each visit
             ppar_labels += [ 'delT_{0}'.format( dsets[i] ) ]
+            #pdb.set_trace()
         ppar_labels = np.array( ppar_labels, dtype=str )
         return ppar_labels, ppar_fixed, ppar_init, pixs
 
@@ -992,8 +1018,12 @@ class WFC3WhiteFitLM():
         flux = self.data[:,3]
         ixsd = self.data_ixs
         # For each scan direction, the systematics model consists of a
-        # double-exponential ramp (a1,a2,a3,a4,a5) and linear time trend (l1,l2):
-        slabels0 = [ 'a1', 'a2', 'a3', 'a4', 'a5', 'l1', 'l2' ]
+        # double-exponential ramp (a1,a2,a3,a4,a5) and time trend with
+        # (l1,l2) for linear and (l1,l2,l3) for quadratic:
+        if self.ttrend=='linear':
+            slabels0 = [ 'a1', 'a2', 'a3', 'a4', 'a5', 'l1', 'l2' ]
+        elif self.ttrend=='quadratic':
+            slabels0 = [ 'a1', 'a2', 'a3', 'a4', 'a5', 'l1', 'l2', 'l3' ]
         # Initial values for systematics parameters:
         spars_init = np.empty( 0 )
         slabels = []
@@ -1032,13 +1062,19 @@ class WFC3WhiteFitLM():
 
     
     def PrelimDEFit( self, thrs, torb, flux ):
+        if self.ttrend=='linear':
+            rfunc = UR.DERampLinBase
+        elif self.ttrend=='quadratic':
+            rfunc = UR.DERampQuadBase
+        else:
+            pdb.set_trace()
         orbixs = UR.SplitHSTOrbixs( thrs )
         ixs = np.concatenate( [ orbixs[0], orbixs[-1] ] )
         thrs = thrs[ixs] + 2./60. # this offset could in theory be another free parameter
         torb = torb[ixs]
         flux = flux[ixs]
         def RMS( pars ):
-            ramp = UR.DERamp( thrs, torb, pars )
+            ramp = rfunc( thrs, torb, pars )
             resids = flux-ramp
             rms = np.sqrt( np.mean( resids**2. ) )
             return rms
@@ -1052,6 +1088,7 @@ class WFC3WhiteFitLM():
             pinit = [ (1e-3)*np.random.randn(), 0.1+0.5*np.random.random(), \
                       (1e-3)*np.random.randn(), 0.1+0.5*np.random.random(), \
                       (1.+5*np.random.random() )/60., l1, l2 ]
+            if self.ttrend=='quadratic': pinit += [ 0 ]
             pfiti = scipy.optimize.fmin( RMS, pinit, maxiter=1e4 )#, xtol=1e-5, ftol=1e-5 )
             mfit = UR.DERamp( thrs, torb, pfiti )
             resids = flux-mfit
@@ -1152,20 +1189,81 @@ class WFC3WhiteFitLM():
         m = mpfit( NormDeviates, self.pars_init, functkw=fa, parinfo=parinfo, \
                    maxiter=1e4, quiet=True )
         if (m.status <= 0): print( 'error message = ', m.errmsg )
-        print( '\n{0}\nFit results:'.format( 50*'#' ) )
-        for i in range( npar ):
-            print( '{0} = {1} +/- {2}'.format( self.par_labels[i], m.params[i], \
-                                               m.perror[i] ) )
-        print( 'status = {0}\n{1}\n'.format( m.status, 50*'#' ) )
         self.pars_fit = { 'pvals':m.params, 'puncs':m.perror, 'pcov':m.covar, \
                           'ndof':m.dof, 'status':m.status }
         self.model_fit = self.CalcModel( m.params )
         if save_to_file==True:
+            self.Save()
             self.Plot()
+        else:
+            self.TxtOut( save_to_file=save_to_file )
+
         return None
 
+    def TxtOut( self, save_to_file=True ):
+        ostr = ''
+        ostr +=  '{0}\n# status = {1}'.format( 50*'#', self.pars_fit['status'] )
+        ostr += '\n#Fit results:\n#{0}'.format( 49*'-' )
+        npar = len( self.fixed )
+        pvals = self.pars_fit['pvals']
+        puncs = self.pars_fit['puncs']
+        for i in range( npar ):
+            col1 = '{0}'.format( self.par_labels[i].rjust( 15 ) )
+            col2 = '{0:20f}'.format( pvals[i] ).replace( ' ', '' ).rjust( 20 )
+            col3 = '{0:20f}'.format( puncs[i] ).replace( ' ', '' ).ljust( 20 )
+            if self.fixed[i]==0:
+                ostr += '\n{0} = {1} +/- {2} (free)'.format( col1, col2, col3 )
+            else:
+                ostr += '\n{0} = {1} +/- {2} (fixed)'.format( col1, col2, col3 )
+        print( ostr )
+        if save_to_file==True:
+            ofile = open( self.whitefit_fpath_txt, 'w' )
+            ofile.write( ostr )
+            ofile.close()
+        return None
+    
+    def Save( self ):
+        outp = {}
+        outp['wlcs'] = self.wlcs
+        outp['analysis'] = self.analysis
+        outp['cullixs_init'] = self.cullixs
+        outp['data_ixs'] = self.data_ixs
+        outp['par_ixs'] = self.par_ixs
+        outp['model_fit'] = self.model_fit
+        outp['pars_fit'] = self.pars_fit
+        outp['fixed'] = self.fixed
+        outp['data'] = self.data
+        #outp['cullixs_final'] = self.cullixs_final
+        outp['batpars'] = self.batpars
+        outp['pmodels'] = self.pmodels
+        outp['orbpars'] = { 'fittype':self.orbpars }
+        if ( self.syspars['tr_type']=='primary' ):
+            ix_aRs = self.par_labels=='aRs'
+            ix_b = self.par_labels=='b'
+            outp['orbpars']['aRs'] = self.pars_fit['pvals'][ix_aRs]
+            outp['orbpars']['b'] = self.pars_fit['pvals'][ix_b]
+        else:
+            outp['orbpars']['aRs'] = self.syspars['aRs']
+            outp['orbpars']['b'] = self.syspars['b']
+        #outp['mle'] = self.mle
+        #outp['freepars'] = self.freepars
+        outp['Tmid0'] = self.Tmid0
+        opath_pkl = self.GetFilePath()
+        ofile = open( opath_pkl, 'wb' )
+        pickle.dump( outp, ofile )
+        ofile.close()
+        opath_txt = opath_pkl.replace( '.pkl', '.txt' )
+        self.whitefit_fpath_pkl = opath_pkl
+        self.whitefit_fpath_txt = opath_txt
+        # Write to the text file:
+        self.TxtOut( save_to_file=True ) # TODO
+        print( '\nSaved:\n{0}\n{1}\n'.format( self.whitefit_fpath_pkl, \
+                                              self.whitefit_fpath_txt ) )
+        return None
+    
+               
     def Plot( self ):
-        #plt.ioff()
+        plt.ioff()
         self.UpdateBatpars( self.pars_fit['pvals'] )
         analysis = self.analysis
         dsets = list( self.wlcs.keys() )
@@ -1180,15 +1278,16 @@ class WFC3WhiteFitLM():
         ffit = pfit*sfit
         resids = flux-ffit
         cjoint = 'Cyan'#0.8*np.ones( 3 )
+        label_fs = 12
         for i in range( nvisits ):
             fig = plt.figure( figsize=[6,9] )
-            xlow = 0.17
+            xlow = 0.15
             axh12 = 0.35
             axh3 = axh12*0.5
-            axw = 0.80
-            ylow1 = 1-0.03-axh12
-            ylow2 = ylow1-0.02-axh12
-            ylow3 = ylow2-0.02-axh3
+            axw = 0.83
+            ylow1 = 1-0.035-axh12
+            ylow2 = ylow1-0.015-axh12
+            ylow3 = ylow2-0.015-axh3
             ax1 = fig.add_axes( [ xlow, ylow1, axw, axh12 ] )
             ax2 = fig.add_axes( [ xlow, ylow2, axw, axh12 ], sharex=ax1 )
             ax3 = fig.add_axes( [ xlow, ylow3, axw, axh3 ], sharex=ax1 )
@@ -1217,12 +1316,13 @@ class WFC3WhiteFitLM():
                 tvfk = 24*( jdfk-Tmid )
                 tv += [ tvk ]
                 tvf += [ tvfk ]
-                ax1.plot( tvk, flux[ixsik], 'o', mec=mec, mfc=mfc )
+                ax1.plot( tvk, 100*( flux[ixsik]-1 ), 'o', mec=mec, mfc=mfc )
                 oixs = UR.SplitHSTOrbixs( thrs[ixsik] )
                 norb = len( oixs )
                 for j in range( norb ):
-                    ax1.plot( tvk[oixs[j]], ffit[ixsik][oixs[j]], '-', color=cjoint )
-                ax2.plot( tvk, flux[ixsik]/sfit[ixsik], 'o', mec=mec, mfc=mfc )
+                    ax1.plot( tvk[oixs[j]], 100*( ffit[ixsik][oixs[j]]-1 ), \
+                              '-', color=cjoint )
+                ax2.plot( tvk, 100*( flux[ixsik]/sfit[ixsik]-1 ), 'o', mec=mec, mfc=mfc )
                 pmodfk = batman.TransitModel( self.batpars[idkey], jdfk, \
                                               transittype=self.syspars['tr_type'] )
                 psignalfk = pmodfk.light_curve( self.batpars[idkey] )
@@ -1234,19 +1334,95 @@ class WFC3WhiteFitLM():
             tvf = np.concatenate( tvf )
             psignalf = np.concatenate( psignalf )
             ixs = np.argsort( tvf )
-            ax2.plot( tvf[ixs], psignalf[ixs], '-', color=cjoint, zorder=0 )
+            ax2.plot( tvf[ixs], 100*( psignalf[ixs]-1 ), '-', color=cjoint, zorder=0 )
             plt.setp( ax1.xaxis.get_ticklabels(), visible=False )
             plt.setp( ax2.xaxis.get_ticklabels(), visible=False )
             titlestr = '{0}'.format( dsets[i] )
             fig.text( xlow+0.5*axw, ylow1+axh12*1.01, titlestr, rotation=0, fontsize=18, \
                       verticalalignment='bottom', horizontalalignment='center' )
-        pdb.set_trace()
+            fig.text( xlow+0.5*axw, 0.01, 'Time from mid-transit (h)', \
+                      rotation=0, fontsize=label_fs, \
+                      verticalalignment='bottom', horizontalalignment='center' )
+            fig.text( 0.01, ylow1+0.5*axh12, 'Flux change (%)', \
+                      rotation=90, fontsize=label_fs, \
+                      verticalalignment='center', horizontalalignment='left' )
+            fig.text( 0.01, ylow2+0.5*axh12, 'Flux change (%)', \
+                      rotation=90, fontsize=label_fs, \
+                      verticalalignment='center', horizontalalignment='left' )
+            fig.text( 0.01, ylow3+0.5*axh3, 'Residuals (ppm)', \
+                      rotation=90, fontsize=label_fs, \
+                      verticalalignment='center', horizontalalignment='left' )
+            #fig.suptitle( ofigpath, fontsize=16 )
+            opath = self.whitefit_fpath_pkl\
+                    .replace( '.pkl', '.{0}.pdf'.format( dsets[i] ) )
+            #ofigpath = os.path.basename( opath ).replace( '.pdf', '' )
+            fig.savefig( opath )
+            print( '\nSaved:\n{0}\n'.format( opath ) )
+            plt.close()
         return None
 
+
+    def GetODir( self ):
+        dirbase = os.path.join( self.results_dir, 'white' )
+        if self.orbpars=='free':
+            dirbase = os.path.join( dirbase, 'orbpars_free' )
+        elif self.orbpars=='fixed':
+            dirbase = os.path.join( dirbase, 'orbpars_fixed' )
+        else:
+            pdb.set_trace() # haven't implemented other cases yet
+        if self.syspars['tr_type']=='primary':
+            dirbase = os.path.join( dirbase, self.ld )
+        else:
+            dirbase = os.path.join( dirbase, 'ldoff' )
+        dsets = list( self.wlcs.keys() )
+        dsets = UR.NaturalSort( dsets )
+        dirext = ''
+        for k in dsets:
+            dirext += '+{0}'.format( k )
+        dirext = dirext[1:]
+        if len( dsets )>1:
+            if self.syspars['tr_type']=='primary':
+                if self.RpRs_shared==True:
+                    dirext += '.RpRs_shared'
+                else:
+                    dirext += '.RpRs_individ'
+            elif self.syspars['tr_type']=='secondary':
+                if self.EcDepth_shared==True:
+                    dirext += '.EcDepth_shared'
+                else:
+                    dirext += '.EcDepth_individ'
+            else:
+                pdb.set_trace()
+        dirbase = os.path.join( dirbase, dirext )
+        if self.akey=='':
+            print( '\n\nMust set akey to create output folder for this particular analysis\n\n' )
+            pdb.set_trace()
+        else:
+            self.odir = os.path.join( dirbase, self.akey )
+        # Don't bother with the reduction parameters in the filenames.
+        # That can be done separately with a custom routine defined by
+        # the user if it's really important.
+        return None
+
+
+    def GetFilePath( self ):
+        self.GetODir()
+        if os.path.isdir( self.odir )==False:
+            os.makedirs( self.odir )
+        if self.beta_free==True:
+            betastr = 'beta_free'
+        else:
+            betastr = 'beta_fixed'
+        oname = 'white.{0}.mpfit.{1}base.pkl'.format( self.analysis, self.ttrend )
+        opath = os.path.join( self.odir, oname )
+        return opath
+    
+
+    
     def CalcModel( self, pars ):#, data, ixsp, ixsd, pmodels, batpars, Tmidlits ):
         """
         For a parameter array for a specific dataset, the parameters
-        are *always* the following (at least for now): 
+        are *always* the following (at least for now):
            RpRs, aRs, b, ldcoeff1, ..., ldcoeffN, delT, l1, l2, a1, a2, a3, a4, a5
         or:
            EcDepth, delT, l1, l2, a1, a2, a3, a4, a5
@@ -3232,7 +3408,6 @@ class WFC3WhiteLightCurve():
         ylow4 = ylow3-0.3*vbuff-axh234
         jd = self.jd
         thrs = 24*( jd-jd[0] )
-        # todo = add cullixs
         scandirs = self.scandirs
         ixsf = ( scandirs==1 )
         ixsb = ( scandirs==-1 )
@@ -3303,11 +3478,8 @@ class WFC3WhiteLightCurve():
         return None
         
     def LoadFromFile( self ):
-        #print( 'bbbbb', self.lc_fpath )
         ifile = open( self.lc_fpath, 'rb' )
-        #print( 'ccccc', self.lc_fpath )
         self = pickle.load( ifile )
-        #print( 'ddddd', self.lc_fpath )
         ifile.close()
         print( '\nLoaded:{0}\n'.format( self.lc_fpath ) )
         return self

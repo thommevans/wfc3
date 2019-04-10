@@ -11,16 +11,18 @@ def DERampLinBase( t, torb, pars ):
     Implementation of the double-exponential ramp model for WFC3 systematics.
     Taken from Eq 1-3 of de Wit et al (2018).
     """
-    p1 = pars[0]
-    p2 = pars[1]
-    p3 = pars[2]
-    p4 = pars[3]
-    p5 = pars[4]
-    p6 = pars[5]
-    p7 = pars[6]
-    rvt = rvFunc( t, p1, p2 )
-    r0t = r0Func( t, torb, rvt, p3, p4, p5 )
-    ttr = p6+p7*t # linear-time baseline trend
+    #a0 = 2./60
+    a0 = pars[0]
+    a1 = pars[1]
+    a2 = pars[2]
+    a3 = pars[3]
+    a4 = pars[4]
+    a5 = pars[5]
+    b0 = pars[6]
+    b1 = pars[7]
+    rvt = rvFunc( t, a0, a1, a2 )
+    r0t = r0Func( torb, rvt, a3, a4, a5 )
+    ttr = b0 + b1*t # linear-time baseline trend
     return rvt*r0t*ttr
 
 def DERampQuadBase( t, torb, pars ):
@@ -28,24 +30,26 @@ def DERampQuadBase( t, torb, pars ):
     Implementation of the double-exponential ramp model for WFC3 systematics.
     Taken from Eq 1-3 of de Wit et al (2018).
     """
-    p1 = pars[0]
-    p2 = pars[1]
-    p3 = pars[2]
-    p4 = pars[3]
-    p5 = pars[4]
-    p6 = pars[5]
-    p7 = pars[6]
-    p8 = pars[7]
-    rvt = rvFunc( t, p1, p2 )
-    r0t = r0Func( t, torb, rvt, p3, p4, p5 )
-    ttr = p6 + p7*t + p8*(t**2.) # quadratic-time baseline trend
+    a0 = pars[0]
+    #a0 = -1./60
+    a1 = pars[1]
+    a2 = pars[2]
+    a3 = pars[3]
+    a4 = pars[4]
+    a5 = pars[5]
+    b0 = pars[6]
+    b1 = pars[7]
+    b2 = pars[8]
+    rvt = rvFunc( t, a0, a1, a2 )
+    r0t = r0Func( torb, rvt, a3, a4, a5  )
+    ttr = b0 + b1*t + b2*(t**2.) # quadratic-time baseline trend
     return rvt*r0t*ttr
 
-def rvFunc( t, p1, p2 ):
-    return 1+p1*np.exp( -t/p2 )
+def rvFunc( t, a0, a1, a2 ):
+    return 1 + a1*np.exp( -( t-a0 )/a2 )
 
-def r0Func( t, torb, rvt, p3, p4, p5 ):
-    return 1+p3*np.exp( -( torb-p5 )/(p4*rvt) )
+def r0Func( torb, rvt, a3, a4, a5 ):
+    return 1 + a3*np.exp( -( torb-a5 )/(a4*rvt) )
 
 
 
@@ -198,7 +202,7 @@ def SplitHSTOrbixs( thrs ):
     return orbixs
 
 
-def DERamp( thrs, torb, pars ):
+def DERampOLD( thrs, torb, pars ):
     """
     Double-exponential ramp function from de Wit et al (2018),
     """
@@ -214,10 +218,10 @@ def DERamp( thrs, torb, pars ):
     lintrend = a6+a7*thrs
     return rvt*r0t*lintrend
 
-def rvFunc( thrs, a1, a2 ):
+def rvFuncOLD( thrs, a1, a2 ):
     return 1+a1*np.exp( -thrs/a2 )
 
-def r0Func( thrs, torb, rvt, a3, a4, a5 ):
+def r0FuncOLD( thrs, torb, rvt, a3, a4, a5 ):
     return 1+a3*np.exp( -( torb-a5 )/(a4*rvt) )
 
 

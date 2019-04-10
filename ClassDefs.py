@@ -1021,9 +1021,9 @@ class WFC3WhiteFitLM():
         # double-exponential ramp (a1,a2,a3,a4,a5) and time trend with
         # (l1,l2) for linear and (l1,l2,l3) for quadratic:
         if self.ttrend=='linear':
-            slabels0 = [ 'a1', 'a2', 'a3', 'a4', 'a5', 'l1', 'l2' ]
+            slabels0 = [ 'a0', 'a1', 'a2', 'a3', 'a4', 'a5', 'b0', 'b1' ]
         elif self.ttrend=='quadratic':
-            slabels0 = [ 'a1', 'a2', 'a3', 'a4', 'a5', 'l1', 'l2', 'l3' ]
+            slabels0 = [ 'a0', 'a1', 'a2', 'a3', 'a4', 'a5', 'b0', 'b1', 'b2' ]
         # Initial values for systematics parameters:
         spars_init = np.empty( 0 )
         slabels = []
@@ -1070,7 +1070,7 @@ class WFC3WhiteFitLM():
             pdb.set_trace()
         orbixs = UR.SplitHSTOrbixs( thrs )
         ixs = np.concatenate( [ orbixs[0], orbixs[-1] ] )
-        thrs = thrs[ixs] + 2./60. # this offset could in theory be another free parameter
+        thrs = thrs[ixs] #+ 2./60. # this offset could in theory be another free parameter
         torb = torb[ixs]
         flux = flux[ixs]
         def RMS( pars ):
@@ -1083,19 +1083,36 @@ class WFC3WhiteFitLM():
         pfit = []
         for i in range( ntrials ):
             print( i )
-            l1 = flux[0]
-            l2 = ( flux[-1]-flux[0] )/( thrs[-1]-thrs[0] )
-            pinit = [ (1e-3)*np.random.randn(), 0.1+0.5*np.random.random(), \
-                      (1e-3)*np.random.randn(), 0.1+0.5*np.random.random(), \
+            l1 = np.median( flux )#flux[0]
+            l2 = 0#( flux[-1]-flux[0] )/( thrs[-1]-thrs[0] )
+            pinit = [ -( 0.5+np.random.random() )/60., \
+                      (1e-1)*np.random.randn(), 0.1+0.5*np.random.random(), \
+                      (1e-1)*np.random.randn(), 0.1+0.5*np.random.random(), \
                       (1.+5*np.random.random() )/60., l1, l2 ]
             if self.ttrend=='quadratic': pinit += [ 0 ]
             pfiti = scipy.optimize.fmin( RMS, pinit, maxiter=1e4 )#, xtol=1e-5, ftol=1e-5 )
-            mfit = UR.DERamp( thrs, torb, pfiti )
+            mfit = rfunc( thrs, torb, pfiti )
             resids = flux-mfit
             rms[i] = np.sqrt( np.mean( resids**2. ) )
             pfit += [ pfiti ]
         return pfit[np.argmin(rms)]
 
+
+    def RunTrials( self, ntrials ):
+        npar = len( self.pars_init )
+        chi2 = np.zeros( ntrials )
+        trials = []
+        print( '\nTrials with randomly perturbed starting positions:' )
+        for i in range( ntrials ):
+            print( i+1, ntrials )
+            for j in range( npar ):
+                v = self.pars_init[j]
+                dv = 0.01*np.random.randn()*np.abs( v )
+                self.pars_init[j] = v + dv
+            self.FitModel( save_to_file=False, verbose=False )
+            chi2[i] = self.CalcChi2()
+            trials += [ self.pars_fit['pvals'] ]
+        return trials[np.argmin(chi2)]
     
     def PreFitting( self, niter=2, sigcut=10 ):
         ixsd = self.data_ixs
@@ -1103,44 +1120,31 @@ class WFC3WhiteFitLM():
         batp = self.batpars
         syspars = self.syspars
         data = self.data
-        for i in range( niter ):
-            self.FitModel( save_to_file=False )
-            pars_prelim = self.pars_fit['pvals']
-            mfit = self.CalcModel( pars_prelim )
+        npar = len( self.pars_init )
+        print( '\nRunning initial fit for full model:' )
+        self.pars_init = self.RunTrials( 5 )
+        print( 'Done.\n' )
+        ncull = 0
+        ndat = 0
+        print( '\nIterating over multiple trials to flag outliers:' )
+        for g in range( niter ):
+            pars_fit = self.RunTrials( self.ntrials )
+            mfit = self.CalcModel( pars_fit )
             ffit = mfit['psignal']*mfit['systematics']
-            ncull = 0
-            ndat = 0
+            #self.model_fit = mfit # delete
+            #chi2b = self.CalcChi2()
             for k in list( ixsd.keys() ):
                 residsk = self.data[ixsd[k],3]-ffit[ixsd[k]]
                 uncsk = self.data[ixsd[k],4]
                 nsig = np.abs( residsk )/uncsk                           
-                ixs = ( nsig<sigcut )
+                ixs = ( nsig<sigcut ) # within threshold
                 ncull += int( nsig.size-ixs.sum() )
                 self.pmodels[k] = batman.TransitModel( batp[k], data[ixsd[k],0][ixs], \
                                                        transittype=syspars['tr_type'] )
                 ixsd[k] = ixsd[k][ixs]
                 ndat += len( residsk )
-            print( 'Iteration={0:.0f}, Nculled={1:.0f}'.format( i+1, ncull ) )
-        npar = len( pars_prelim )
-        print( 'Locating minimim chi^2:' )
-        chi2 = np.zeros( self.ntrials )
-        pars_trials = np.zeros( [ self.ntrials, npar ] )
-        self.model_fit = {}
-        for i in range( self.ntrials ):
-            print( i+1, self.ntrials )
-            pars0 = np.zeros( npar )
-            # Randomly perturb the starting values:
-            for j in range( npar ):
-                pars0[j] = pars_prelim[j] + 0.1*np.random.randn()*np.abs( pars_prelim[j] )
-            self.FitModel( save_to_file=False )
-            chi2[i] = self.CalcChi2()
-            pars_trials[i,:] = self.pars_fit['pvals']
-        ix = np.argmin( chi2 )
-        print( 'min(chi^2) = {0:.2f} for {1:.0f} dof'.format( chi2[ix], ndat-npar ) )
-        print( 'i.e. reduced(chi^2) = {0:.2f}'.format( chi2[ix]/float( ndat-npar ) ) )
-        pars_fit = pars_trials[ix,:]
-        mfit = self.CalcModel( pars_fit )
-        ffit = mfit['psignal']*mfit['systematics']
+            print( 'Iteration={0:.0f}, Nculled={1:.0f}'.format( g+1, ncull ) )
+            self.pars_init = pars_fit
         rescale = {}
         print( '\n{0}\nRescaling measurement uncertainties by:\n'.format( 50*'#' ) )
         for k in list( ixsd.keys() ):
@@ -1149,10 +1153,12 @@ class WFC3WhiteFitLM():
             rchi2k = chi2k/float( len( residsk )-len( pars_fit[ixsp[k]] ) )
             rescale[k] = np.sqrt( rchi2k )
             print( '{0:.2f} for {1}'.format( rescale[k], k ) )
+        for k in list( ixsd.keys() ):
+            self.data[ixsd[k],4] *= rescale[k]
+        self.uncertainties_rescale = rescale
         print( '{0}\n'.format( 50*'#' ) )    
-        self.pars_init = pars_fit
-        self.model_fit = None # to avoid any confusion
-        self.pars_fit = None # to avoid any confusion
+        self.model_fit = None # reset for main FitModel() run
+        self.pars_fit = None # reset for main FitModel() run
         self.data_ixs = ixsd
         return None
 
@@ -1167,7 +1173,7 @@ class WFC3WhiteFitLM():
         return chi2
 
     
-    def FitModel( self, save_to_file=False ):
+    def FitModel( self, save_to_file=False, verbose=True ):
         def NormDeviates( pars, fjac=None, data=None, ixsp=None, ixsd=None, \
                           pmodels=None, batpars=None, Tmidlits=None ):
             """
@@ -1187,7 +1193,7 @@ class WFC3WhiteFitLM():
         fa = { 'data':self.data, 'ixsp':self.par_ixs,  'ixsd':self.data_ixs,  \
                'pmodels':self.pmodels,  'batpars':self.batpars,  'Tmidlits':self.Tmid0 }
         m = mpfit( NormDeviates, self.pars_init, functkw=fa, parinfo=parinfo, \
-                   maxiter=1e4, quiet=True )
+                   maxiter=1e3, ftol=1e-5, quiet=True )
         if (m.status <= 0): print( 'error message = ', m.errmsg )
         self.pars_fit = { 'pvals':m.params, 'puncs':m.perror, 'pcov':m.covar, \
                           'ndof':m.dof, 'status':m.status }
@@ -1195,15 +1201,24 @@ class WFC3WhiteFitLM():
         if save_to_file==True:
             self.Save()
             self.Plot()
-        else:
-            self.TxtOut( save_to_file=save_to_file )
+
+        ostr = self.TxtOut( save_to_file=save_to_file )
+        if verbose==True:
+            print( ostr )
 
         return None
 
     def TxtOut( self, save_to_file=True ):
         ostr = ''
         ostr +=  '{0}\n# status = {1}'.format( 50*'#', self.pars_fit['status'] )
-        ostr += '\n#Fit results:\n#{0}'.format( 49*'-' )
+        try:
+            ostr1 = '\n# Uncertainty rescaling factors:'
+            for k in list( self.data_ixs.keys() ):
+                ostr1 += '\n#  {0} = {1:.4f}'.format( k, self.uncertainties_rescale[k] )
+            ostr += ostr1
+        except:
+            pass
+        ostr += '\n# Fit results:\n#{0}'.format( 49*'-' )
         npar = len( self.fixed )
         pvals = self.pars_fit['pvals']
         puncs = self.pars_fit['puncs']
@@ -1215,12 +1230,11 @@ class WFC3WhiteFitLM():
                 ostr += '\n{0} = {1} +/- {2} (free)'.format( col1, col2, col3 )
             else:
                 ostr += '\n{0} = {1} +/- {2} (fixed)'.format( col1, col2, col3 )
-        print( ostr )
         if save_to_file==True:
             ofile = open( self.whitefit_fpath_txt, 'w' )
             ofile.write( ostr )
             ofile.close()
-        return None
+        return ostr
     
     def Save( self ):
         outp = {}
@@ -1423,12 +1437,18 @@ class WFC3WhiteFitLM():
         """
         For a parameter array for a specific dataset, the parameters
         are *always* the following (at least for now):
-           RpRs, aRs, b, ldcoeff1, ..., ldcoeffN, delT, l1, l2, a1, a2, a3, a4, a5
+           RpRs, aRs, b, ldcoeff1, ..., ldcoeffN, delT, a1, a2, a3, a4, a5, b1, b2, (b3)
         or:
-           EcDepth, delT, l1, l2, a1, a2, a3, a4, a5
+           EcDepth, delT, a1, a2, a3, a4, a5, b1, b2, (b3)
         So you can always unpack these in this order and send them as
         inputs to their appropriate functions. 
         """
+        if self.ttrend=='linear':
+            rfunc = UR.DERampLinBase
+        elif self.ttrend=='quadratic':
+            rfunc = UR.DERampQuadBase
+        else:
+            pdb.set_trace()
         ndat, nvar = np.shape( self.data )
         batp = self.batpars
         pmod = self.pmodels
@@ -1462,19 +1482,25 @@ class WFC3WhiteFitLM():
                     s = 2 # EcDepth, delT
                 psignal[ixsdk] = pmod[idkey].light_curve( batp[idkey] )
                 # Evaluate the systematics signal:
-                systematics[ixsdk] = UR.DERamp( thrs[ixsdk], torb[ixsdk], parsk[s:] )
+                systematics[ixsdk] = rfunc( thrs[ixsdk], torb[ixsdk], parsk[s:] )
         return { 'psignal':psignal, 'systematics':systematics }
 
     def CalcModelBACKUP( self, pars ):#, data, ixsp, ixsd, pmodels, batpars, Tmidlits ):
         """
         For a parameter array for a specific dataset, the parameters
         are *always* the following (at least for now): 
-           RpRs, aRs, b, ldcoeff1, ..., ldcoeffN, delT, l1, l2, a1, a2, a3, a4, a5
+           RpRs, aRs, b, ldcoeff1, ..., ldcoeffN, delT, a1, a2, a3, a4, a5, b1, b2
         or:
            EcDepth, delT, l1, l2, a1, a2, a3, a4, a5
         So you can always unpack these in this order and send them as
         inputs to their appropriate functions. 
         """
+        if self.ttrend=='linear':
+            rfunc = UR.DERampLinBase
+        elif self.ttrend=='quadratic':
+            rfunc = UR.DERampQuadBase
+        else:
+            pdb.set_trace()
         ndat, nvar = np.shape( self.data )
         batp = self.batpars
         pmod = self.pmodels
@@ -1520,7 +1546,7 @@ class WFC3WhiteFitLM():
                     pdb.set_trace()
                 psignal[ixsdk] = pmod[idkey].light_curve( batp[idkey] )
                 # Evaluate the systematics signal:
-                systematics[ixsdk] = UR.DERamp( thrs[ixsdk], torb[ixsdk], parsk[s:] )
+                systematics[ixsdk] = rfunc( thrs[ixsdk], torb[ixsdk], parsk[s:] )
         return { 'psignal':psignal, 'systematics':systematics }
     
     def UpdateBatpars( self, pars ):

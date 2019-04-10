@@ -1078,7 +1078,7 @@ class WFC3WhiteFitLM():
             resids = flux-ramp
             rms = np.sqrt( np.mean( resids**2. ) )
             return rms
-        ntrials = 10
+        ntrials = 30
         rms = np.zeros( ntrials )
         pfit = []
         for i in range( ntrials ):

@@ -6,12 +6,19 @@ from bayes.pyhm_dev import pyhm
 import numexpr
 
 
+def rvFunc( t, a0, a1, a2 ):
+    return 1 + a1*np.exp( -( t-a0 )/a2 )
+
+
+def r0Func( torb, rvt, a3, a4, a5 ):
+    return 1 + a3*np.exp( -( torb-a5 )/(a4*rvt) )
+
+
 def DERampLinBase( t, torb, pars ):
     """
     Implementation of the double-exponential ramp model for WFC3 systematics.
     Taken from Eq 1-3 of de Wit et al (2018).
     """
-    #a0 = 2./60
     a0 = pars[0]
     a1 = pars[1]
     a2 = pars[2]
@@ -23,7 +30,11 @@ def DERampLinBase( t, torb, pars ):
     rvt = rvFunc( t, a0, a1, a2 )
     r0t = r0Func( torb, rvt, a3, a4, a5 )
     ttr = b0 + b1*t # linear-time baseline trend
+    #print( '\nPar values are:' )
+    #print( pars )
+    #print( '' )    
     return rvt*r0t*ttr
+
 
 def DERampQuadBase( t, torb, pars ):
     """
@@ -44,13 +55,6 @@ def DERampQuadBase( t, torb, pars ):
     r0t = r0Func( torb, rvt, a3, a4, a5  )
     ttr = b0 + b1*t + b2*(t**2.) # quadratic-time baseline trend
     return rvt*r0t*ttr
-
-def rvFunc( t, a0, a1, a2 ):
-    return 1 + a1*np.exp( -( t-a0 )/a2 )
-
-def r0Func( torb, rvt, a3, a4, a5 ):
-    return 1 + a3*np.exp( -( torb-a5 )/(a4*rvt) )
-
 
 
 def Zap2D( ecounts2d, nsig_transient=8, nsig_static=10, niter=1 ):

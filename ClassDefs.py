@@ -857,6 +857,7 @@ class WFC3WhiteFitLM():
         self.batpars = {} # batpars for each data configuration
         self.Tmid0 = {} # literature mid-times for each data configuration
         i1 = 0
+        ixs = {}
         for i in range( ndsets ):
             dset = dsets[i]
             wlc = self.wlcs[dset]
@@ -871,6 +872,7 @@ class WFC3WhiteFitLM():
             while Tmidi>wlc.jd.max():
                 Tmidi -= self.syspars['P'][0]
             self.Tmid0[dset] = Tmidi
+            ixs[dset] = {}
             for k in self.scankeys[dset]:
                 jdi = wlc.jd[scanixs[k]]
                 thrsi = 24*( jdi-wlc.jd[0] ) # time since start of visit in hours
@@ -879,16 +881,16 @@ class WFC3WhiteFitLM():
                 uncsi = wlc.whitelc[analysis]['uncs'][scanixs[k]]
                 data += [ np.column_stack( [ jdi, thrsi, torbi, fluxi, uncsi ] ) ]
                 i2 = i1+len( fluxi )
-                idkey = '{0}{1}'.format( dset, k )
-                ixs[idkey] = np.arange( i1, i2 )
+                ixs[dset][k] = np.arange( i1, i2 )
                 batparik, pmodelik = self.GetBatmanObject( jdi, wlc.config )
-                self.pmodels[idkey] = pmodelik
-                self.batpars[idkey] = batparik
+                idkey = '{0}{1}'.format( dset, k )
+                self.pmodels[idkey] = pmodelik # TODO = change to [dset][k]?
+                self.batpars[idkey] = batparik # TODO = change to [dset][k]?
                 # Slide the index along for next visit:
                 i1 = i2
         # Package data together in single array for mpfit:
         self.data = np.vstack( data ) 
-        self.data_ixs = ixs
+        self.keepixs = ixs
         return None
 
 
@@ -1084,7 +1086,7 @@ class WFC3WhiteFitLM():
         c = 0 # counter
         for k in self.scankeys[dataset]:
             idkey = '{0}{1}'.format( dataset, k )
-            orbixs = UR.SplitHSTOrbixs( thrs[self.data_ixs[idkey]] )
+            orbixs = UR.SplitHSTOrbixs( thrs[self.keepixs[dataset][k]] )
             nmed = min( [ int( len( orbixs[-1] )/2. ), 3 ] )
             fluxn[k] = fluxc[idkey]/np.median( fluxc[idkey][orbixs[-1]][-nmed:] )
             binit += binit0
@@ -1130,7 +1132,7 @@ class WFC3WhiteFitLM():
                     self.batpars[idkey].t_secondary = Tmid0 + p[1]
                 psignal[idkey] = self.pmodels[idkey].light_curve( self.batpars[idkey] )
                 bparsk = p[nppar+bixs[idkey]]
-                thrsk = thrs[self.data_ixs[idkey]]
+                thrsk = thrs[self.keepixs[dataset][k]]
                 if self.ttrend=='linear':
                     baseline[idkey] = bparsk[0] + bparsk[1]*thrsk
                 elif self.ttrend=='quadratic':
@@ -1153,7 +1155,7 @@ class WFC3WhiteFitLM():
         thrs = self.data[:,1]
         torb = self.data[:,2]
         flux = self.data[:,3]
-        ixsd = self.data_ixs
+        ixsd = self.keepixs
         # For each scan direction, the systematics model consists of a
         # double-exponential ramp (a1,a2,a3,a4,a5):
         rlabels0 = [ 'a0', 'a1', 'a2', 'a3', 'a4', 'a5' ]
@@ -1164,32 +1166,28 @@ class WFC3WhiteFitLM():
         rixs = {}
         fluxc = {}
         c = 0 # counter
-        rkeys = []
         dsets = list( self.wlcs.keys() )
         ndsets = len( dsets )
         for i in range( ndsets ):
             dset = dsets[i]
-            rkeysi = []
-            for j in range( len( self.scankeys[dset] ) ):
-                rkeysi += [ self.scankeys[dset][j] ]
-                k = '{0}{1}'.format( dset, self.scankeys[dset][j] )
+            for k in self.scankeys[dset]:
+                ixsdk = ixsd[dset][k]
+                idkey = '{0}{1}'.format( dset, k )
                 # Run a quick double-exponential ramp fit on the first
                 # and last HST orbits to get reasonable starting values
                 # for the parameters:
-                rpars0, fluxcij = self.PrelimDEFit( thrs[ixsd[k]], torb[ixsd[k]], \
-                                                    flux[ixsd[k]] )
+                rpars0, fluxcik = self.PrelimDEFit( thrs[ixsdk], torb[ixsdk], \
+                                                    flux[ixsdk] )
                 rinit = np.concatenate( [ rinit, rpars0 ] )
                 nrpar = len( rpars0 )
-                rixs[k] = np.arange( c*nrpar, (c+1)*nrpar )
-                fluxc[k] = fluxcij
+                rixs[idkey] = np.arange( c*nrpar, (c+1)*nrpar )
+                fluxc[idkey] = fluxcik
                 rfixed = np.concatenate( [ rfixed, np.zeros( nrpar ) ] )
-                rlabels_ij = []
-                for k in range( nrpar ):
-                    rlabels_ij += [ '{0}_{1}{2}'.format( rlabels0[k], dset, \
-                                                         self.scankeys[dset][j] ) ]
-                rlabels += [ np.array( rlabels_ij, dtype=str ) ]
+                rlabels_ik = []
+                for j in range( nrpar ):
+                    rlabels_ik += [ '{0}_{1}{2}'.format( rlabels0[j], dset, k ) ]
+                rlabels += [ np.array( rlabels_ik, dtype=str ) ]
                 c += 1
-            rkeys += [ rkeysi ]
         rlabels = np.concatenate( rlabels )
         r = { 'labels':rlabels, 'fixed':rfixed, 'pars_init':rinit, 'ixs':rixs }
         return r, fluxc
@@ -1255,6 +1253,63 @@ class WFC3WhiteFitLM():
         return trials[np.argmin(chi2)]
     
     def PreFitting( self, niter=2, sigcut=10 ):
+        keepixs = self.keepixs
+        ixsp = self.par_ixs
+        batp = self.batpars
+        syspars = self.syspars
+        data = self.data
+        npar = len( self.pars_init )
+        print( '\nRunning initial fit for full model:' )
+        self.pars_init = self.RunTrials( 5 )
+        print( 'Done.\n' )
+        ncull = 0
+        ndat = 0
+        dsets = list( self.wlcs.keys() )
+        print( '\nIterating over multiple trials to flag outliers:' )
+        tt = syspars['tr_type']
+        for g in range( niter ):
+            pars_fit = self.RunTrials( self.ntrials )
+            mfit = self.CalcModel( pars_fit )
+            ffit = mfit['psignal']*mfit['systematics']
+            for dset in dsets:
+                for k in self.scankeys[dset]:
+                    ixsdk = keepixs[dset][k]
+                    idkey = '{0}{1}'.format( dset, k )
+                    residsk = self.data[ixsdk,3]-ffit[ixsdk]
+                    uncsk = self.data[ixsdk,4]
+                    nsig = np.abs( residsk )/uncsk                           
+                    ixs = ( nsig<sigcut ) # within threshold
+                    ncull += int( nsig.size-ixs.sum() )
+                    self.pmodels[idkey] = batman.TransitModel( batp[idkey], \
+                                                               data[ixsdk,0][ixs], \
+                                                               transittype=tt )
+                    keepixs[dset][k] = ixsdk[ixs] # this should possibly be keepixs...
+                    ndat += len( residsk )
+            print( 'Iteration={0:.0f}, Nculled={1:.0f}'.format( g+1, ncull ) )
+            self.pars_init = pars_fit
+        print( '\n{0}\nRescaling measurement uncertainties by:\n'.format( 50*'#' ) )
+        rescale = {}
+        for dset in dsets:
+            rescale[dset] = {}
+            for k in self.scankeys[dset]:
+                idkey = '{0}{1}'.format( dset, k )
+                ixsdk = keepixs[dset][k]
+                zk = ( self.data[ixsdk,3]-ffit[ixsdk] )/self.data[ixsdk,4]
+                chi2k = np.sum( zk**2. )
+                rchi2k = chi2k/float( len( residsk )-len( pars_fit[ixsp[idkey]] ) )
+                rescale[dset][k] = np.sqrt( rchi2k )
+                print( '{0:.2f} for {1}{2}'.format( rescale[dset][k], dset, k ) )
+        for dset in dsets:
+            for k in self.scankeys[dset]:
+                self.data[keepixs[dset][k],4] *= rescale[dset][k]
+        self.uncertainties_rescale = rescale
+        print( '{0}\n'.format( 50*'#' ) )    
+        self.model_fit = None # reset for main FitModel() run
+        self.pars_fit = None # reset for main FitModel() run
+        self.keepixs = keepixs
+        return None
+
+    def PreFittingBACKUP( self, niter=2, sigcut=10 ):
         ixsd = self.data_ixs
         ixsp = self.par_ixs
         batp = self.batpars
@@ -1266,6 +1321,7 @@ class WFC3WhiteFitLM():
         print( 'Done.\n' )
         ncull = 0
         ndat = 0
+        dsets = list( self.wlcs.keys() )
         print( '\nIterating over multiple trials to flag outliers:' )
         for g in range( niter ):
             pars_fit = self.RunTrials( self.ntrials )
@@ -1300,14 +1356,16 @@ class WFC3WhiteFitLM():
         self.data_ixs = ixsd
         return None
 
+    
     def CalcChi2( self ):
         ffit = self.model_fit['psignal']*self.model_fit['systematics']
-        ixsd = self.data_ixs
         chi2 = 0
-        for k in list( ixsd.keys() ):
-            residsk = ( self.data[ixsd[k],3]-ffit[ixsd[k]] )
-            uncsk = self.data[ixsd[k],4]
-            chi2 += np.sum( ( residsk/uncsk )**2. )
+        for dset in list( self.keepixs.keys() ):
+            for k in list( self.keepixs[dset].keys() ):
+                ixsdk = self.keepixs[dset][k]
+                residsk = ( self.data[ixsdk,3]-ffit[ixsdk] )
+                uncsk = self.data[ixsdk,4]
+                chi2 += np.sum( ( residsk/uncsk )**2. )
         return chi2
 
     
@@ -1328,7 +1386,7 @@ class WFC3WhiteFitLM():
             parinfo += [ { 'value':self.pars_init[i], 'fixed':self.fixed[i], \
                            'parname':self.par_labels[i], \
                            'limited':[0,0], 'limits':[0.,0.]} ]
-        fa = { 'data':self.data, 'ixsp':self.par_ixs,  'ixsd':self.data_ixs,  \
+        fa = { 'data':self.data, 'ixsp':self.par_ixs,  'ixsd':self.keepixs,  \
                'pmodels':self.pmodels,  'batpars':self.batpars,  'Tmidlits':self.Tmid0 }
         m = mpfit( NormDeviates, self.pars_init, functkw=fa, parinfo=parinfo, \
                    maxiter=1e3, ftol=1e-5, quiet=True )
@@ -1351,7 +1409,7 @@ class WFC3WhiteFitLM():
         ostr +=  '{0}\n# status = {1}'.format( 50*'#', self.pars_fit['status'] )
         try:
             ostr1 = '\n# Uncertainty rescaling factors:'
-            for k in list( self.data_ixs.keys() ):
+            for k in list( self.keepixs.keys() ):
                 ostr1 += '\n#  {0} = {1:.4f}'.format( k, self.uncertainties_rescale[k] )
             ostr += ostr1
         except:
@@ -1375,11 +1433,18 @@ class WFC3WhiteFitLM():
         return ostr
     
     def Save( self ):
+        """
+        In terms of what still needs to be done to make this output
+        be compatible with WFC3PrepSpeclcs():
+          - create cullixs_final in proper format
+          - create bestfits structure in proper format
+        Next step = Look at what structure these have in a GP whitefit file.
+        """
         outp = {}
         outp['wlcs'] = self.wlcs
         outp['analysis'] = self.analysis
         outp['cullixs_init'] = self.cullixs
-        outp['data_ixs'] = self.data_ixs
+        outp['keepixs_final'] = self.keepixs
         outp['par_ixs'] = self.par_ixs
         outp['model_fit'] = self.model_fit
         outp['pars_fit'] = self.pars_fit
@@ -1421,7 +1486,7 @@ class WFC3WhiteFitLM():
         thrs = self.data[:,1]
         flux = self.data[:,3]
         uncs = self.data[:,4]
-        ixsd = self.data_ixs
+        ixsd = self.keepixs
         pfit = self.model_fit['psignal']
         sfit = self.model_fit['systematics']
         ffit = pfit*sfit
@@ -1447,7 +1512,7 @@ class WFC3WhiteFitLM():
             psignalf = []
             for k in self.scankeys[dsets[i]]:#range( nscans ):
                 idkey = '{0}{1}'.format( dsets[i], k )
-                ixsik = ixsd[idkey]
+                ixsik = ixsd[dsets[i]][k]
                 if k=='f':
                     mfc = np.array( [217,240,211] )/256.
                     mec = np.array( [27,120,55] )/256.
@@ -1598,12 +1663,12 @@ class WFC3WhiteFitLM():
         ndsets = len( dsets )
         self.UpdateBatpars( pars )
 
-        for k in range( ndsets ):
-            dset = dsets[k]
+        for i in range( ndsets ):
+            dset = dsets[i]
             Tmid0k = self.Tmid0[dset]
-            for j in range( len( self.scankeys[dset] ) ):
-                idkey = '{0}{1}'.format( dset, self.scankeys[dset][j] )
-                ixsdk = self.data_ixs[idkey]
+            for k in self.scankeys[dset]:
+                idkey = '{0}{1}'.format( dset, k )
+                ixsdk = self.keepixs[dset][k]
                 parsk = pars[self.par_ixs[idkey]]
                 if pmod[idkey].transittype==1:
                     if batp[idkey].limb_dark=='quadratic':
@@ -1628,12 +1693,12 @@ class WFC3WhiteFitLM():
         pmod = self.pmodels
         dsets = list( self.wlcs.keys() )
         ndsets = len( dsets )
-        for k in range( ndsets ):
-            dset = dsets[k]
+        for i in range( ndsets ):
+            dset = dsets[i]
             Tmid0k = self.Tmid0[dset]
-            for j in range( len( self.scankeys[dset] ) ):
-                idkey = '{0}{1}'.format( dset, self.scankeys[dset][j] )
-                ixsdk = self.data_ixs[idkey]
+            for k in self.scankeys[dset]:
+                idkey = '{0}{1}'.format( dset, k )
+                ixsdk = self.keepixs[dset][k]
                 parsk = pars[self.par_ixs[idkey]]
                 # Evaluate the planet signal:
                 if pmod[idkey].transittype==1:
@@ -1741,95 +1806,6 @@ class WFC3WhiteFitGP():
         self.nsteps = 250
         self.RpRs_shared = True
         self.EcDepth_shared = True        
-
-    def GenerateDEMBundleOLDITHINK( self ):
-        """
-        This routine was defined after GenerateMBundle (which should become GenerateGPMBundle),
-        in order to handle cases where we're fitting for a double-exponential (DE) ramp model.
-        """
-        dsets = list( self.wlcs.keys() )
-        nvisits = len( dsets )
-        ##########################################
-        # Combine the datasets:
-        data = []
-        aixs = [] # indices to split data
-        bixs = [] # indices to split ramp parameters
-        iparinit = [] # starting instrument model parameters
-        ipar0 = [ 0, 1, 0, 1, 0.1, 1, 0 ]
-        nipar = len( ipar0 )
-        a1 = 0
-        b1 = 0
-        for i in range( nvisits ):
-            dset = dsets[i]
-            wlc = self.wlcs[dset]
-            ixsc = self.cullixs[dset]         
-            scanixs = {}
-            scanixs['f'] = ixsc[wlc.scandirs[ixsc]==1]
-            scanixs['b'] = ixsc[wlc.scandirs[ixsc]==-1]
-            cullixs_final = []
-            for k in self.scankeys[dset]:
-                jdi = wlc.jd[scanixs[k]]
-                thrsi = 24*( jdi-jdi[0] )
-                torbi = wlc.whitelc[self.analysis]['auxvars']['torb'][scanixs[k]]
-                fluxi = wlc.whitelc[self.analysis]['flux'][scanixs[k]]
-                uncsi = wlc.whitelc[self.analysis]['uncs'][scanixs[k]]
-                data += [ np.column_stack( [ jdi, thrsi, torbi, fluxi, uncsi ] ) ]
-                a2 = a1+len( fluxi )
-                aixs += [ [a1,a2] ]
-                # Add initial values for the instrument model parameters:
-                iparinit += [ ipar0 ]
-                b2 = b1+nipar
-                bixs += [ [b1,b2] ]
-                # Slide the indices along for next visit:
-                a1 = a2
-                b1 = b2
-        data = np.vstack( data ) # data packaged together in single array, as will be required by mpfit
-        iparinit = np.concatenate( iparinit ) # initial values for instrument model packaged together
-        aixs = np.row_stack( aixs ) # these indices allow the data to be unpacked for each visit
-        bixs = np.row_stack( bixs ) # unpacking indices for instrument model parameters of each visit
-        ##########################################
-        # Next step is to work out how to define the pmodel stuff with the
-        # different parameters shared and varied separately between datasets.....
-        pdb.set_trace()
-        
-        # Define the model parameters shared across all lightcurves:
-        print( '\n{0}\nGenerating model parameters:'.format( 50*'#' ) )
-        parents = {}
-        self.initvals = {}
-        self.mbundle = {}
-        if self.orbpars=='free':
-            aRs = pyhm.Uniform( 'aRs', lower=0, upper=100 )
-            b = pyhm.Uniform( 'b', lower=0, upper=1 )
-            self.mbundle.update( { 'aRs':aRs, 'b':b } )
-            self.initvals.update( { 'aRs':self.syspars['aRs'][0], \
-                                    'b':self.syspars['b'][0] } )
-        elif self.orbpars=='fixed':
-            aRs = self.syspars['aRs'][0]
-            b = self.syspars['b'][0]
-            self.mbundle.update( { 'aRs':aRs, 'b':b } )
-        else:
-            pdb.set_trace()
-        parents.update( { 'aRs':aRs, 'b':b } )
-        if ( self.syspars['tr_type']=='primary' ):
-            if ( self.RpRs_shared==True ):
-                RpRs = pyhm.Uniform( 'RpRs', lower=0, upper=1 )
-                self.mbundle['RpRs'] = RpRs
-                parents['RpRs'] = RpRs
-                self.initvals['RpRs'] = self.syspars['RpRs'][0]
-            else:
-                pdb.set_trace() # have not implemented yet
-            ldpars = self.SetupLDPars()
-            parents.update( ldpars )
-        if ( self.syspars['tr_type']=='secondary' ):
-            if ( self.EcDepth_shared==True ):
-                EcDepth = pyhm.Uniform( 'EcDepth', lower=0, upper=1 )
-                self.mbundle['EcDepth'] = EcDepth
-                parents['EcDepth'] = EcDepth
-                self.initvals['EcDepth'] = self.syspars['EcDepth'][0]
-            else:
-                pdb.set_trace() # have not implemented yet                
-        self.AddVisitMBundles( parents )
-        
 
         
     def GenerateMBundle( self ):
@@ -2024,7 +2000,7 @@ class WFC3WhiteFitGP():
         """
         self.Tmid0 = {}
         self.evalmodels = {}
-        self.cullixs_final = {} # todo = change to keepixs_final so consistent w/speclcs
+        self.keepixs_final = {} # todo = change to keepixs_final so consistent w/speclcs
         dsets = list( self.wlcs.keys() )
         nvisits = len( dsets )
         for j in range( nvisits ):
@@ -2068,18 +2044,16 @@ class WFC3WhiteFitGP():
     def GPMBundle( self, dset, parents, Tmid ):
         wlc = self.wlcs[dset]
         ixsc = self.cullixs[dset]         
-        self.evalmodels[dset] = {}
-        self.cullixs_final[dset] = {}
         scanixs = {}
         scanixs['f'] = ixsc[wlc.scandirs[ixsc]==1]
         scanixs['b'] = ixsc[wlc.scandirs[ixsc]==-1]
-        cullixs_final = []
+        keepixs_final = []
         for k in self.scankeys[dset]:
             self.GetModelComponents( dset, parents, scanixs, k, Tmid )
-            cullixs_final += [ self.evalmodels[dset][k][1] ]
-        cullixs_final = np.concatenate( cullixs_final )
-        ixs = np.argsort( cullixs_final )
-        self.cullixs_final[dset] = cullixs_final[ixs]
+            keepixs_final += [ self.evalmodels[dset][k][1] ]
+        keepixs_final = np.concatenate( keepixs_final )
+        ixs = np.argsort( keepixs_final )
+        self.keepixs_final[dset] = keepixs_final[ixs]
         return None
     
         
@@ -2091,12 +2065,13 @@ class WFC3WhiteFitGP():
         combination, including the log-likelihood function. Returns complete 
         mbundle for current visit, with initvals and evalmodel.
         """
+        self.evalmodels[dset] = {}
         wlc = self.wlcs[dset]
         #idkey = '{0}{1}'.format( wlc.dsetname, scankey ) # this was what it was...
         idkey = '{0}{1}'.format( dset, scankey ) # haven't tested yet but should be right?
         gpinputs = self.gpinputs[dset]
         gpkernel = self.gpkernels[dset]
-        ixs, pfit0 = self.PolyFitCullixs( dset, Tmid, scanixs[scankey] )#[k] )
+        ixs, pfit0 = self.PolyFitCullixs( dset, Tmid, scanixs[scankey] )
         betalabel = 'beta_{0}'.format( idkey )
         if self.beta_free==True:
             parents['beta'] = pyhm.Gaussian( betalabel, mu=1.0, sigma=0.2 )
@@ -2394,7 +2369,9 @@ class WFC3WhiteFitGP():
     def PolyFitCullixs( self, dset, Tmid, ixs ):
         """
         Quick polynomial systematics model fit to identify remaining outliers.
-        This routine could probably be broken into smaller pieces.
+        Note that ixs contains the indices for a single scan direction after
+        removing the pre-defined data points defined by cullixs. So the aim
+        of this routine is to identify additional statistical outliers.
         """
         wlc = self.wlcs[dset]
         syspars = self.syspars
@@ -2905,7 +2882,7 @@ class WFC3WhiteFitGP():
         self.whitefit_mcmc_fpath_pkl = mcmc_fpath
         self.whitefit_mle_fpath_pkl = mle_fpath
         self.cullixs = z['cullixs_init']
-        self.cullixs_final = z['cullixs_final']
+        self.keepixs_final = z['keepixs_final']
         self.batpars = z['batpars']
         self.pmodels = z['pmodels']
         self.bestfits = z['bestfits']
@@ -2920,7 +2897,6 @@ class WFC3WhiteFitGP():
         self.nwalkers = z['nwalkers']
         self.nsteps = z['nsteps']
         self.nburn2 = z['nburn']
-        pdb.set_trace()
         return None
         
     def Save( self ):
@@ -2936,7 +2912,7 @@ class WFC3WhiteFitGP():
         outp['wlcs'] = self.wlcs
         outp['analysis'] = self.analysis
         outp['cullixs_init'] = self.cullixs
-        outp['cullixs_final'] = self.cullixs_final
+        outp['keepixs_final'] = self.keepixs_final
         #pdb.set_trace()
         outp['batpars'] = self.batpars
         outp['pmodels'] = self.pmodels
@@ -3132,7 +3108,7 @@ class WFC3SpecLightCurves():
     def PrepSpecLCs( self, spec1d, whitefit ):
         # Get ixs to be used for each scan direction:
         self.scankeys = list( whitefit['bestfits'][self.dsetname].keys() )
-        ixsc = whitefit['cullixs_final'][self.dsetname]
+        ixsc = whitefit['keepixs_final'][self.dsetname]
         self.jd = spec1d.jd[ixsc]
         self.scandirs = spec1d.scandirs[ixsc]
         # Copy auxvars, cull, split into f and b to start:
@@ -3143,7 +3119,7 @@ class WFC3SpecLightCurves():
             for i in list( auxvarsk.keys() ):
                 self.auxvars[k][i] = auxvarsk[i][ixsc]
         self.analysis = whitefit['analysis']
-        ixsc = whitefit['cullixs_final'][self.dsetname]
+        ixsc = whitefit['keepixs_final'][self.dsetname]
         wfitarrs = whitefit['bestfits'][self.dsetname]
         wflux = whitefit['wlcs'][self.dsetname].whitelc[self.analysis]['flux']
         self.MakeCommonMode( wfitarrs, wflux[ixsc] )

@@ -33,7 +33,7 @@ def DERampLinBase( t, torb, pars ):
     #print( '\nPar values are:' )
     #print( pars )
     #print( '' )    
-    return rvt*r0t*ttr
+    return ttr, rvt*r0t
 
 
 def DERampQuadBase( t, torb, pars ):
@@ -54,7 +54,7 @@ def DERampQuadBase( t, torb, pars ):
     rvt = rvFunc( t, a0, a1, a2 )
     r0t = r0Func( torb, rvt, a3, a4, a5  )
     ttr = b0 + b1*t + b2*(t**2.) # quadratic-time baseline trend
-    return rvt*r0t*ttr
+    return ttr, rvt*r0t
 
 
 def Zap2D( ecounts2d, nsig_transient=8, nsig_static=10, niter=1 ):
@@ -469,7 +469,7 @@ def GetChainFromWalkers( walker_chains, nburn=0 ):
 
 
 
-def BestfitsEval( mle, evalmodels ):
+def BestFitsEval( mle, evalmodels ):
     dsets = list( evalmodels.keys() )
     bestfits = {}
     batpars = {}

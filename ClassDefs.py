@@ -623,7 +623,7 @@ class WFC3SpecFit():
         self.specfit_mcmc_fpath_pkl = mcmc_fpath
         self.specfit_mcmc_fpath_txt = mcmc_fpath.replace( '.pkl', '.txt' )
         self.specfit_mle_fpath_pkl = mle_fpath
-        bestfits, batpars, pmodels = UR.BestfitsEval( self.mle, self.evalmodels )
+        bestfits, batpars, pmodels = UR.BestFitsEval( self.mle, self.evalmodels )
         self.bestfits = bestfits
         self.batpars = batpars
         self.pmodels = pmodels
@@ -810,7 +810,7 @@ class WFC3WhiteFitLM():
     PrepData()
     PrepModelParams()
     PreFitting()
-    FitModel() 
+    FitModel()
     """
     def __init__( self ):
         self.wlcs = None
@@ -855,6 +855,7 @@ class WFC3WhiteFitLM():
         ixs = {} # indices to split data
         self.pmodels = {} # pmodels for each data configuration
         self.batpars = {} # batpars for each data configuration
+        #self.pmodelfs = {}
         self.Tmid0 = {} # literature mid-times for each data configuration
         i1 = 0
         ixs = {}
@@ -873,8 +874,10 @@ class WFC3WhiteFitLM():
                 Tmidi -= self.syspars['P'][0]
             self.Tmid0[dset] = Tmidi
             ixs[dset] = {}
+            nf = 500
             for k in self.scankeys[dset]:
                 jdi = wlc.jd[scanixs[k]]
+                jdf = np.linspace( jdi.min(), jdi.max(), nf )
                 thrsi = 24*( jdi-wlc.jd[0] ) # time since start of visit in hours
                 torbi = wlc.whitelc[analysis]['auxvars']['torb'][scanixs[k]]
                 fluxi = wlc.whitelc[analysis]['flux'][scanixs[k]]
@@ -883,9 +886,11 @@ class WFC3WhiteFitLM():
                 i2 = i1+len( fluxi )
                 ixs[dset][k] = np.arange( i1, i2 )
                 batparik, pmodelik = self.GetBatmanObject( jdi, wlc.config )
+                #batparifk, pmodelifk = self.GetBatmanObject( jdif, wlc.config )
                 idkey = '{0}{1}'.format( dset, k )
                 self.pmodels[idkey] = pmodelik # TODO = change to [dset][k]?
                 self.batpars[idkey] = batparik # TODO = change to [dset][k]?
+                #self.pmodelfs[idkey] = pmodelifk # TODO = change to [dset][k]?
                 # Slide the index along for next visit:
                 i1 = i2
         # Package data together in single array for mpfit:
@@ -1209,8 +1214,8 @@ class WFC3WhiteFitLM():
         orbixs = UR.SplitHSTOrbixs( thrs )
         ixs = np.concatenate( [ orbixs[0], orbixs[-1] ] )
         def CalcRMS( pars ):
-            ramp = rfunc( thrs[ixs], torb[ixs], pars )
-            resids = flux[ixs]-ramp
+            ttrend, ramp = rfunc( thrs[ixs], torb[ixs], pars )
+            resids = flux[ixs]-ttrend*ramp
             rms = np.sqrt( np.mean( resids**2. ) )
             return rms
         ntrials = 30
@@ -1231,8 +1236,8 @@ class WFC3WhiteFitLM():
         pbest = pfit[np.argmin(rms)]            
         a0, a1, a2, a3, a4, a5 = pbest[:-nbase]
         rpars = [ a0, a1, a2, a3, a4, a5 ]
-        mfit = rfunc( thrs, torb, pbest )
-        fluxc = flux/mfit
+        tfit, rfit = rfunc( thrs, torb, pbest )
+        fluxc = flux/( tfit*rfit )
         return rpars, fluxc
 
 
@@ -1270,7 +1275,7 @@ class WFC3WhiteFitLM():
         for g in range( niter ):
             pars_fit = self.RunTrials( self.ntrials )
             mfit = self.CalcModel( pars_fit )
-            ffit = mfit['psignal']*mfit['systematics']
+            ffit = mfit['psignal']*mfit['ttrend']*mfit['ramp']
             for dset in dsets:
                 for k in self.scankeys[dset]:
                     ixsdk = keepixs[dset][k]
@@ -1356,9 +1361,38 @@ class WFC3WhiteFitLM():
         self.data_ixs = ixsd
         return None
 
+    def BestFitsOut( self ):
+        jd = self.data[:,0]
+        self.bestfits = {}
+        nf = 500
+        for dset in list( self.keepixs.keys() ):
+            self.bestfits[dset] = {}
+            for k in list( self.keepixs[dset].keys() ):
+                idkey = '{0}{1}'.format( dset, k )
+                ixsdk = self.keepixs[dset][k]
+                pfitdk = self.model_fit['psignal'][ixsdk] # planet signal
+                tfitdk = self.model_fit['ttrend'][ixsdk] # baseline trend
+                rfitdk = self.model_fit['ramp'][ixsdk] # ramp
+                jddk = jd[ixsdk]
+                jdfdk = np.linspace( jddk.min(), jddk.max(), nf )
+                pmodfk = batman.TransitModel( self.batpars[idkey], jdfdk, \
+                                              transittype=self.syspars['tr_type'] )
+                pfitfdk = pmodfk.light_curve( self.batpars[idkey] )
+                self.bestfits[dset][k] = {}
+                self.bestfits[dset][k]['jd'] = jddk
+                self.bestfits[dset][k]['psignal'] = pfitdk
+                self.bestfits[dset][k]['ttrend'] = tfitdk
+                self.bestfits[dset][k]['ramp'] = rfitdk
+                self.bestfits[dset][k]['jdf'] = jdfdk
+                self.bestfits[dset][k]['psignalf'] = pfitfdk
+                # TODO = add baseline trend, but a little fiddly the way
+                # it's currently set up...
+        return None
     
     def CalcChi2( self ):
-        ffit = self.model_fit['psignal']*self.model_fit['systematics']
+        pfit = self.model_fit['psignal'] # planet signal
+        sfit = self.model_fit['ttrend']*self.model_fit['ramp'] # systematics
+        ffit = pfit*sfit
         chi2 = 0
         for dset in list( self.keepixs.keys() ):
             for k in list( self.keepixs[dset].keys() ):
@@ -1376,7 +1410,7 @@ class WFC3WhiteFitLM():
             Function defined in format required by mpfit.
             """
             m = self.CalcModel( pars )
-            fullmodel = m['psignal']*m['systematics']
+            fullmodel = m['psignal']*m['ttrend']*m['ramp']
             resids = data[:,3]-fullmodel
             status = 0
             return resids/data[:,4]
@@ -1447,6 +1481,8 @@ class WFC3WhiteFitLM():
         outp['keepixs_final'] = self.keepixs
         outp['par_ixs'] = self.par_ixs
         outp['model_fit'] = self.model_fit
+        self.BestFitsOut()
+        outp['bestfits'] = self.bestfits
         outp['pars_fit'] = self.pars_fit
         outp['fixed'] = self.fixed
         outp['data'] = self.data
@@ -1488,7 +1524,7 @@ class WFC3WhiteFitLM():
         uncs = self.data[:,4]
         ixsd = self.keepixs
         pfit = self.model_fit['psignal']
-        sfit = self.model_fit['systematics']
+        sfit = self.model_fit['ramp']*self.model_fit['ttrend']
         ffit = pfit*sfit
         resids = flux-ffit
         cjoint = 'Cyan'#0.8*np.ones( 3 )
@@ -1519,7 +1555,8 @@ class WFC3WhiteFitLM():
                 elif k=='b':
                     mfc = np.array( [231,212,232] )/256.
                     mec = np.array( [118,42,131] )/256.
-                jdfk = np.linspace( jd[ixsik].min(), jd[ixsik].max(), 300 )
+                #jdfk = np.linspace( jd[ixsik].min(), jd[ixsik].max(), 300 )
+                jdfk = self.bestfits[dsets[i]][k]['jdf']
                 if self.syspars['tr_type']=='primary':
                     Tmid = self.batpars[idkey].t0
                 elif self.syspars['tr_type']=='secondary':
@@ -1539,7 +1576,8 @@ class WFC3WhiteFitLM():
                 ax2.plot( tvk, 100*( flux[ixsik]/sfit[ixsik]-1 ), 'o', mec=mec, mfc=mfc )
                 pmodfk = batman.TransitModel( self.batpars[idkey], jdfk, \
                                               transittype=self.syspars['tr_type'] )
-                psignalfk = pmodfk.light_curve( self.batpars[idkey] )
+                #psignalfk = pmodfk.light_curve( self.batpars[idkey] )
+                psignalfk = self.bestfits[dsets[i]][k]['psignalf']
                 psignalf += [ psignalfk ]
                 ax3.errorbar( tvk, (1e6)*resids[ixsik], \
                               yerr=(1e6)*uncs[ixsik], fmt='o', \
@@ -1653,7 +1691,8 @@ class WFC3WhiteFitLM():
         batp = self.batpars
         pmod = self.pmodels
         psignal = np.zeros( ndat )
-        systematics = np.zeros( ndat )
+        ttrend = np.zeros( ndat )
+        ramp = np.zeros( ndat )
         jd = self.data[:,0]
         thrs = self.data[:,1]
         torb = self.data[:,2]
@@ -1682,11 +1721,10 @@ class WFC3WhiteFitLM():
                     s = 2 # EcDepth, delT
                 psignal[ixsdk] = pmod[idkey].light_curve( batp[idkey] )
                 # Evaluate the systematics signal:
-                systematics[ixsdk] = rfunc( thrs[ixsdk], torb[ixsdk], parsk[s:] )
-                #print( '\ninside CalcModel' )
-                #print( parsk[s:] )
-                #print( idkey )
-        return { 'psignal':psignal, 'systematics':systematics }
+                tfit, rfit = rfunc( thrs[ixsdk], torb[ixsdk], parsk[s:] )
+                ttrend[ixsdk] = tfit
+                ramp[ixsdk] = rfit
+        return { 'psignal':psignal, 'ttrend':ttrend, 'ramp':ramp }
 
     def UpdateBatpars( self, pars ):
         batp = self.batpars
@@ -2105,8 +2143,8 @@ class WFC3WhiteFitGP():
         k = z['parlabels']
         def EvalModel( fitvals ):
             nf = 500
-            jdf = np.r_[ z['jd'].min():z['jd'].max():1j*nf ]
-            tvf = np.r_[ z['tv'].min():z['tv'].max():1j*nf ]
+            jdf = np.linspace( z['jd'].min(), z['jd'].max(), nf )
+            tvf = np.linspace( z['tv'].min(), z['tv'].max(), nf )
             ttrendf = fitvals[k['a0']] + fitvals[k['a1']]*tvf
             ttrend = fitvals[k['a0']] + fitvals[k['a1']]*z['tv']
             if self.orbpars=='free':
@@ -2904,7 +2942,7 @@ class WFC3WhiteFitGP():
         self.whitefit_mcmc_fpath_pkl = mcmc_fpath
         self.whitefit_mcmc_fpath_txt = mcmc_fpath.replace( '.pkl', '.txt' )
         self.whitefit_mle_fpath_pkl = mle_fpath
-        bestfits, batpars, pmodels = UR.BestfitsEval( self.mle, self.evalmodels )
+        bestfits, batpars, pmodels = UR.BestFitsEval( self.mle, self.evalmodels )
         self.bestfits = bestfits
         self.batpars = batpars
         self.pmodels = pmodels

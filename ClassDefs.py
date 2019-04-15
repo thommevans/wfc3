@@ -810,7 +810,7 @@ class WFC3WhiteFitLM():
     PrepData()
     PrepModelParams()
     PreFitting()
-    FitModel()
+    FitModel() 
     """
     def __init__( self ):
         self.wlcs = None

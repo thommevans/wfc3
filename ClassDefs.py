@@ -1483,6 +1483,7 @@ class WFC3WhiteFitLM():
         outp['model_fit'] = self.model_fit
         self.BestFitsOut()
         outp['bestfits'] = self.bestfits
+        outp['uncertainties_rescale'] = self.uncertainties_rescale
         outp['pars_fit'] = self.pars_fit
         outp['fixed'] = self.fixed
         outp['data'] = self.data
@@ -1546,6 +1547,7 @@ class WFC3WhiteFitLM():
             tv = []
             tvf = []
             psignalf = []
+            print( '\n\nResidual scatter:' )
             for k in self.scankeys[dsets[i]]:#range( nscans ):
                 idkey = '{0}{1}'.format( dsets[i], k )
                 ixsik = ixsd[dsets[i]][k]
@@ -1583,6 +1585,9 @@ class WFC3WhiteFitLM():
                               yerr=(1e6)*uncs[ixsik], fmt='o', \
                               mec=mec, ecolor=mec, mfc=mfc )
                 ax3.axhline( 0, ls='-', color=cjoint, zorder=0 )
+                rms_ppm = (1e6)*( np.sqrt( np.mean( resids[ixsik]**2. ) ) )
+                print( '  {0} = {1:.0f} ppm ({2:.2f}x photon noise)'\
+                       .format( idkey, rms_ppm, self.uncertainties_rescale[dsets[i]][k] ) )
             tvf = np.concatenate( tvf )
             psignalf = np.concatenate( psignalf )
             ixs = np.argsort( tvf )
@@ -1621,6 +1626,7 @@ class WFC3WhiteFitLM():
         elif self.orbpars=='fixed':
             dirbase = os.path.join( dirbase, 'orbpars_fixed' )
         else:
+            print( '\n\n\norbpars must be "free" or "fixed"\n\n\n' )
             pdb.set_trace() # haven't implemented other cases yet
         if self.syspars['tr_type']=='primary':
             dirbase = os.path.join( dirbase, self.ld )

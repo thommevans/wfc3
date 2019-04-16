@@ -922,19 +922,18 @@ class WFC3WhiteFitLM():
         # Combine the ramp and baseline parameters:
         s = { 'labels':[], 'fixed':[], 'pars_init':[], 'ixs':{} }
         c = 0
-        for k in dsets:
-            for i in list( r['ixs'].keys() ):
-                rixs = r['ixs'][i]
-                bixs = b['ixs'][i]
-                s['labels'] += [ np.concatenate( [ r['labels'][rixs], \
-                                                   b['labels'][bixs] ] ) ]
-                s['fixed'] += [ np.concatenate( [ r['fixed'][rixs], \
-                                                  b['fixed'][bixs] ] ) ]
-                s['pars_init'] += [ np.concatenate( [ r['pars_init'][rixs], \
-                                                      b['pars_init'][bixs] ] ) ]
-                nspar = len( rixs )+len( bixs )
-                s['ixs'][i] = np.arange( c, c+nspar )
-                c += nspar
+        for i in list( r['ixs'].keys() ):
+            rixs = r['ixs'][i]
+            bixs = b['ixs'][i]
+            s['labels'] += [ np.concatenate( [ r['labels'][rixs], \
+                                               b['labels'][bixs] ] ) ]
+            s['fixed'] += [ np.concatenate( [ r['fixed'][rixs], \
+                                              b['fixed'][bixs] ] ) ]
+            s['pars_init'] += [ np.concatenate( [ r['pars_init'][rixs], \
+                                                  b['pars_init'][bixs] ] ) ]
+            nspar = len( rixs )+len( bixs )
+            s['ixs'][i] = np.arange( c, c+nspar )
+            c += nspar
         for j in ['labels','fixed','pars_init']:
             s[j] = np.concatenate( s[j] )
         # Combine into global parameter list:

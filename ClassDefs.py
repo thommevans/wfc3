@@ -1459,6 +1459,9 @@ class WFC3WhiteFitLM():
                 ostr += '\n{0} = {1} +/- {2} (free)'.format( col1, col2, col3 )
             else:
                 ostr += '\n{0} = {1} +/- {2} (fixed)'.format( col1, col2, col3 )
+        ostr += '\n#Tmid assumed for each dataset:'
+        for d in list( self.wlcs.keys() ):
+            ostr += '\n#  {0} = {1}'.format( d, self.Tmid0[d] )
         if save_to_file==True:
             ofile = open( self.whitefit_fpath_txt, 'w' )
             ofile.write( ostr )
@@ -1756,7 +1759,7 @@ class WFC3WhiteFitLM():
                     else:
                         pdb.set_trace()
                     batp[idkey].u = parsk[3:3+m]
-                    batp[idkey].t0 = Tmid0k + parsk[3+m]
+                    batp[idkey].t0 = Tmid0k + parsk[3+m]                    
                 elif pmod[idkey].transittype==2:
                     # Secondary eclipses only have the eclipse depth and mid-time:
                     batp[idkey].fp = parsk[0]

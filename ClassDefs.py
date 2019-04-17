@@ -1290,8 +1290,9 @@ class WFC3WhiteFitLM():
                     self.pmodels[idkey] = batman.TransitModel( batp[idkey], \
                                                                data[ixsdk,0][ixs], \
                                                                transittype=tt )
-                    keepixs[dset][k] = ixsdk[ixs] # this should possibly be keepixs...
+                    keepixs[dset][k] = ixsdk[ixs]
                     ndat += len( residsk )
+            print( 'Iteration={0:.0f}, Nculled={1:.0f}'.format( g+1, ncull ) )
             self.pars_init = pars_fit
         print( '\n{0}\nRescaling measurement uncertainties by:\n'.format( 50*'#' ) )
         rescale = {}

@@ -896,6 +896,9 @@ class WFC3WhiteFitLM():
         # Package data together in single array for mpfit:
         self.data = np.vstack( data ) 
         self.keepixs = ixs
+        #print( 'ClassDefs.PrepData() ---> ', np.shape( self.data ) )
+        #print( len(self.keepixs) )
+        #pdb.set_trace()
         return None
 
 
@@ -1289,7 +1292,6 @@ class WFC3WhiteFitLM():
                                                                transittype=tt )
                     keepixs[dset][k] = ixsdk[ixs] # this should possibly be keepixs...
                     ndat += len( residsk )
-            print( 'Iteration={0:.0f}, Nculled={1:.0f}'.format( g+1, ncull ) )
             self.pars_init = pars_fit
         print( '\n{0}\nRescaling measurement uncertainties by:\n'.format( 50*'#' ) )
         rescale = {}
@@ -1341,6 +1343,7 @@ class WFC3WhiteFitLM():
                                                        transittype=syspars['tr_type'] )
                 ixsd[k] = ixsd[k][ixs]
                 ndat += len( residsk )
+            pdb.set_trace()
             print( 'Iteration={0:.0f}, Nculled={1:.0f}'.format( g+1, ncull ) )
             self.pars_init = pars_fit
         rescale = {}
@@ -1459,7 +1462,7 @@ class WFC3WhiteFitLM():
                 ostr += '\n{0} = {1} +/- {2} (free)'.format( col1, col2, col3 )
             else:
                 ostr += '\n{0} = {1} +/- {2} (fixed)'.format( col1, col2, col3 )
-        ostr += '\n#Tmid assumed for each dataset:'
+        ostr += '\n# Tmid assumed for each dataset:'
         for d in list( self.wlcs.keys() ):
             ostr += '\n#  {0} = {1}'.format( d, self.Tmid0[d] )
         if save_to_file==True:
@@ -1538,7 +1541,7 @@ class WFC3WhiteFitLM():
             axh12 = 0.35
             axh3 = axh12*0.5
             axw = 0.83
-            ylow1 = 1-0.035-axh12
+            ylow1 = 1-0.04-axh12
             ylow2 = ylow1-0.015-axh12
             ylow3 = ylow2-0.015-axh3
             ax1 = fig.add_axes( [ xlow, ylow1, axw, axh12 ] )
@@ -1550,6 +1553,7 @@ class WFC3WhiteFitLM():
             tvf = []
             psignalf = []
             print( '\n\nResidual scatter:' )
+            Tmidlit = self.Tmid0[dsets[i]]
             for k in self.scankeys[dsets[i]]:#range( nscans ):
                 idkey = '{0}{1}'.format( dsets[i], k )
                 ixsik = ixsd[dsets[i]][k]
@@ -1577,6 +1581,10 @@ class WFC3WhiteFitLM():
                 for j in range( norb ):
                     ax1.plot( tvk[oixs[j]], 100*( ffit[ixsik][oixs[j]]-1 ), \
                               '-', color=cjoint )
+                if k==self.scankeys[dsets[i]][-1]:
+                    ax1.axvline( Tmidlit-Tmid, ls='--', c='r', zorder=0, \
+                                 label='delT={0:.4f}'.format( Tmid-Tmidlit ) )
+                    ax1.legend( loc='lower right', bbox_to_anchor=[1,1.005] )
                 ax2.plot( tvk, 100*( flux[ixsik]/sfit[ixsik]-1 ), 'o', mec=mec, mfc=mfc )
                 pmodfk = batman.TransitModel( self.batpars[idkey], jdfk, \
                                               transittype=self.syspars['tr_type'] )
@@ -1599,7 +1607,7 @@ class WFC3WhiteFitLM():
             titlestr = '{0}'.format( dsets[i] )
             fig.text( xlow+0.5*axw, ylow1+axh12*1.01, titlestr, rotation=0, fontsize=18, \
                       verticalalignment='bottom', horizontalalignment='center' )
-            fig.text( xlow+0.5*axw, 0.01, 'Time from mid-transit (h)', \
+            fig.text( xlow+0.5*axw, 0.005, 'Time from mid-transit (h)', \
                       rotation=0, fontsize=label_fs, \
                       verticalalignment='bottom', horizontalalignment='center' )
             fig.text( 0.01, ylow1+0.5*axh12, 'Flux change (%)', \

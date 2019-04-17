@@ -1582,8 +1582,9 @@ class WFC3WhiteFitLM():
                     ax1.plot( tvk[oixs[j]], 100*( ffit[ixsik][oixs[j]]-1 ), \
                               '-', color=cjoint )
                 if k==self.scankeys[dsets[i]][-1]:
-                    ax1.axvline( Tmidlit-Tmid, ls='--', c='r', zorder=0, \
-                                 label='delT={0:.4f}'.format( Tmid-Tmidlit ) )
+                    delTmin = 24*60*( Tmidlit-Tmid )
+                    ax1.axvline( delTmin/60., ls='--', c='r', zorder=0, \
+                                 label='delT={0:.2f}min'.format( delTmin ) )
                     ax1.legend( loc='lower right', bbox_to_anchor=[1,1.005] )
                 ax2.plot( tvk, 100*( flux[ixsik]/sfit[ixsik]-1 ), 'o', mec=mec, mfc=mfc )
                 pmodfk = batman.TransitModel( self.batpars[idkey], jdfk, \

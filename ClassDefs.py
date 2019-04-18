@@ -852,7 +852,8 @@ class WFC3WhiteFitLM():
         analysis = self.analysis
         self.SetupLDPars()
         data = []
-        ixs = {} # indices to split data
+        ixs = {} # indices to split vstacked data
+        ixsk = {} # indices to map vstacked data back to original
         self.pmodels = {} # pmodels for each data configuration
         self.batpars = {} # batpars for each data configuration
         #self.pmodelfs = {}
@@ -874,6 +875,7 @@ class WFC3WhiteFitLM():
                 Tmidi -= self.syspars['P'][0]
             self.Tmid0[dset] = Tmidi
             ixs[dset] = {}
+            ixsk[dset] = {}
             nf = 500
             for k in self.scankeys[dset]:
                 jdi = wlc.jd[scanixs[k]]
@@ -885,6 +887,7 @@ class WFC3WhiteFitLM():
                 data += [ np.column_stack( [ jdi, thrsi, torbi, fluxi, uncsi ] ) ]
                 i2 = i1+len( fluxi )
                 ixs[dset][k] = np.arange( i1, i2 )
+                ixsk[dset][k] = np.arange( wlc.jd.size )[scanixs[k]]
                 batparik, pmodelik = self.GetBatmanObject( jdi, wlc.config )
                 #batparifk, pmodelifk = self.GetBatmanObject( jdif, wlc.config )
                 idkey = '{0}{1}'.format( dset, k )
@@ -895,9 +898,8 @@ class WFC3WhiteFitLM():
                 i1 = i2
         # Package data together in single array for mpfit:
         self.data = np.vstack( data ) 
-        self.keepixs = ixs
-        #print( 'ClassDefs.PrepData() ---> ', np.shape( self.data ) )
-        #print( len(self.keepixs) )
+        self.data_ixs = ixs
+        self.keepixs = ixsk
         #pdb.set_trace()
         return None
 
@@ -1093,7 +1095,7 @@ class WFC3WhiteFitLM():
         c = 0 # counter
         for k in self.scankeys[dataset]:
             idkey = '{0}{1}'.format( dataset, k )
-            orbixs = UR.SplitHSTOrbixs( thrs[self.keepixs[dataset][k]] )
+            orbixs = UR.SplitHSTOrbixs( thrs[self.data_ixs[dataset][k]] )
             nmed = min( [ int( len( orbixs[-1] )/2. ), 3 ] )
             fluxn[k] = fluxc[idkey]/np.median( fluxc[idkey][orbixs[-1]][-nmed:] )
             binit += binit0
@@ -1139,7 +1141,7 @@ class WFC3WhiteFitLM():
                     self.batpars[idkey].t_secondary = Tmid0 + p[1]
                 psignal[idkey] = self.pmodels[idkey].light_curve( self.batpars[idkey] )
                 bparsk = p[nppar+bixs[idkey]]
-                thrsk = thrs[self.keepixs[dataset][k]]
+                thrsk = thrs[self.data_ixs[dataset][k]]
                 if self.ttrend=='linear':
                     baseline[idkey] = bparsk[0] + bparsk[1]*thrsk
                 elif self.ttrend=='quadratic':
@@ -1162,7 +1164,7 @@ class WFC3WhiteFitLM():
         thrs = self.data[:,1]
         torb = self.data[:,2]
         flux = self.data[:,3]
-        ixsd = self.keepixs
+        ixsd = self.data_ixs
         # For each scan direction, the systematics model consists of a
         # double-exponential ramp (a1,a2,a3,a4,a5):
         rlabels0 = [ 'a0', 'a1', 'a2', 'a3', 'a4', 'a5' ]
@@ -1260,9 +1262,11 @@ class WFC3WhiteFitLM():
         return trials[np.argmin(chi2)]
     
     def PreFitting( self, niter=2, sigcut=10 ):
-        keepixs = self.keepixs
+        ixsd = self.data_ixs
+        ixsm = self.keepixs
         ixsp = self.par_ixs
         batp = self.batpars
+        #pdb.set_trace()
         syspars = self.syspars
         data = self.data
         npar = len( self.pars_init )
@@ -1280,7 +1284,8 @@ class WFC3WhiteFitLM():
             ffit = mfit['psignal']*mfit['ttrend']*mfit['ramp']
             for dset in dsets:
                 for k in self.scankeys[dset]:
-                    ixsdk = keepixs[dset][k]
+                    ixsdk = ixsd[dset][k]
+                    ixsmk = ixsm[dset][k]
                     idkey = '{0}{1}'.format( dset, k )
                     residsk = self.data[ixsdk,3]-ffit[ixsdk]
                     uncsk = self.data[ixsdk,4]
@@ -1290,7 +1295,8 @@ class WFC3WhiteFitLM():
                     self.pmodels[idkey] = batman.TransitModel( batp[idkey], \
                                                                data[ixsdk,0][ixs], \
                                                                transittype=tt )
-                    keepixs[dset][k] = ixsdk[ixs]
+                    ixsd[dset][k] = ixsdk[ixs]
+                    ixsm[dset][k] = ixsmk[ixs]
                     ndat += len( residsk )
             print( 'Iteration={0:.0f}, Nculled={1:.0f}'.format( g+1, ncull ) )
             self.pars_init = pars_fit
@@ -1300,7 +1306,8 @@ class WFC3WhiteFitLM():
             rescale[dset] = {}
             for k in self.scankeys[dset]:
                 idkey = '{0}{1}'.format( dset, k )
-                ixsdk = keepixs[dset][k]
+                ixsdk = ixsd[dset][k]
+                ixsmk = ixsm[dset][k]
                 zk = ( self.data[ixsdk,3]-ffit[ixsdk] )/self.data[ixsdk,4]
                 chi2k = np.sum( zk**2. )
                 rchi2k = chi2k/float( len( residsk )-len( pars_fit[ixsp[idkey]] ) )
@@ -1308,71 +1315,25 @@ class WFC3WhiteFitLM():
                 print( '{0:.2f} for {1}{2}'.format( rescale[dset][k], dset, k ) )
         for dset in dsets:
             for k in self.scankeys[dset]:
-                self.data[keepixs[dset][k],4] *= rescale[dset][k]
-        self.uncertainties_rescale = rescale
-        print( '{0}\n'.format( 50*'#' ) )    
-        self.model_fit = None # reset for main FitModel() run
-        self.pars_fit = None # reset for main FitModel() run
-        self.keepixs = keepixs
-        return None
-
-    def PreFittingBACKUP( self, niter=2, sigcut=10 ):
-        ixsd = self.data_ixs
-        ixsp = self.par_ixs
-        batp = self.batpars
-        syspars = self.syspars
-        data = self.data
-        npar = len( self.pars_init )
-        print( '\nRunning initial fit for full model:' )
-        self.pars_init = self.RunTrials( 5 )
-        print( 'Done.\n' )
-        ncull = 0
-        ndat = 0
-        dsets = list( self.wlcs.keys() )
-        print( '\nIterating over multiple trials to flag outliers:' )
-        for g in range( niter ):
-            pars_fit = self.RunTrials( self.ntrials )
-            mfit = self.CalcModel( pars_fit )
-            ffit = mfit['psignal']*mfit['systematics']
-            for k in list( ixsd.keys() ):
-                residsk = self.data[ixsd[k],3]-ffit[ixsd[k]]
-                uncsk = self.data[ixsd[k],4]
-                nsig = np.abs( residsk )/uncsk                           
-                ixs = ( nsig<sigcut ) # within threshold
-                ncull += int( nsig.size-ixs.sum() )
-                self.pmodels[k] = batman.TransitModel( batp[k], data[ixsd[k],0][ixs], \
-                                                       transittype=syspars['tr_type'] )
-                ixsd[k] = ixsd[k][ixs]
-                ndat += len( residsk )
-            pdb.set_trace()
-            print( 'Iteration={0:.0f}, Nculled={1:.0f}'.format( g+1, ncull ) )
-            self.pars_init = pars_fit
-        rescale = {}
-        print( '\n{0}\nRescaling measurement uncertainties by:\n'.format( 50*'#' ) )
-        for k in list( ixsd.keys() ):
-            zk = ( self.data[ixsd[k],3]-ffit[ixsd[k]] )/self.data[ixsd[k],4]
-            chi2k = np.sum( zk**2. )
-            rchi2k = chi2k/float( len( residsk )-len( pars_fit[ixsp[k]] ) )
-            rescale[k] = np.sqrt( rchi2k )
-            print( '{0:.2f} for {1}'.format( rescale[k], k ) )
-        for k in list( ixsd.keys() ):
-            self.data[ixsd[k],4] *= rescale[k]
+                self.data[ixsd[dset][k],4] *= rescale[dset][k]
         self.uncertainties_rescale = rescale
         print( '{0}\n'.format( 50*'#' ) )    
         self.model_fit = None # reset for main FitModel() run
         self.pars_fit = None # reset for main FitModel() run
         self.data_ixs = ixsd
+        self.keepixs = ixsm
         return None
+
 
     def BestFitsOut( self ):
         jd = self.data[:,0]
         self.bestfits = {}
         nf = 500
-        for dset in list( self.keepixs.keys() ):
+        for dset in list( self.data_ixs.keys() ):
             self.bestfits[dset] = {}
-            for k in list( self.keepixs[dset].keys() ):
+            for k in list( self.data_ixs[dset].keys() ):
                 idkey = '{0}{1}'.format( dset, k )
-                ixsdk = self.keepixs[dset][k]
+                ixsdk = self.data_ixs[dset][k]
                 pfitdk = self.model_fit['psignal'][ixsdk] # planet signal
                 tfitdk = self.model_fit['ttrend'][ixsdk] # baseline trend
                 rfitdk = self.model_fit['ramp'][ixsdk] # ramp
@@ -1397,9 +1358,9 @@ class WFC3WhiteFitLM():
         sfit = self.model_fit['ttrend']*self.model_fit['ramp'] # systematics
         ffit = pfit*sfit
         chi2 = 0
-        for dset in list( self.keepixs.keys() ):
-            for k in list( self.keepixs[dset].keys() ):
-                ixsdk = self.keepixs[dset][k]
+        for dset in list( self.data_ixs.keys() ):
+            for k in list( self.data_ixs[dset].keys() ):
+                ixsdk = self.data_ixs[dset][k]
                 residsk = ( self.data[ixsdk,3]-ffit[ixsdk] )
                 uncsk = self.data[ixsdk,4]
                 chi2 += np.sum( ( residsk/uncsk )**2. )
@@ -1423,7 +1384,7 @@ class WFC3WhiteFitLM():
             parinfo += [ { 'value':self.pars_init[i], 'fixed':self.fixed[i], \
                            'parname':self.par_labels[i], \
                            'limited':[0,0], 'limits':[0.,0.]} ]
-        fa = { 'data':self.data, 'ixsp':self.par_ixs,  'ixsd':self.keepixs,  \
+        fa = { 'data':self.data, 'ixsp':self.par_ixs,  'ixsd':self.data_ixs,  \
                'pmodels':self.pmodels,  'batpars':self.batpars,  'Tmidlits':self.Tmid0 }
         m = mpfit( NormDeviates, self.pars_init, functkw=fa, parinfo=parinfo, \
                    maxiter=1e3, ftol=1e-5, quiet=True )
@@ -1446,7 +1407,7 @@ class WFC3WhiteFitLM():
         ostr +=  '{0}\n# status = {1}'.format( 50*'#', self.pars_fit['status'] )
         try:
             ostr1 = '\n# Uncertainty rescaling factors:'
-            for k in list( self.keepixs.keys() ):
+            for k in list( self.data_ixs.keys() ):
                 ostr1 += '\n#  {0} = {1:.4f}'.format( k, self.uncertainties_rescale[k] )
             ostr += ostr1
         except:
@@ -1483,6 +1444,9 @@ class WFC3WhiteFitLM():
         outp = {}
         outp['wlcs'] = self.wlcs
         outp['analysis'] = self.analysis
+        # vstacked data:
+        outp['data_ixs'] = self.data_ixs
+        outp['data'] = self.data
         outp['cullixs_init'] = self.cullixs
         outp['keepixs_final'] = self.keepixs
         outp['par_ixs'] = self.par_ixs
@@ -1492,7 +1456,6 @@ class WFC3WhiteFitLM():
         outp['uncertainties_rescale'] = self.uncertainties_rescale
         outp['pars_fit'] = self.pars_fit
         outp['fixed'] = self.fixed
-        outp['data'] = self.data
         outp['batpars'] = self.batpars
         outp['pmodels'] = self.pmodels
         outp['orbpars'] = { 'fittype':self.orbpars }
@@ -1529,7 +1492,7 @@ class WFC3WhiteFitLM():
         thrs = self.data[:,1]
         flux = self.data[:,3]
         uncs = self.data[:,4]
-        ixsd = self.keepixs
+        ixsd = self.data_ixs
         pfit = self.model_fit['psignal']
         sfit = self.model_fit['ramp']*self.model_fit['ttrend']
         ffit = pfit*sfit
@@ -1725,7 +1688,7 @@ class WFC3WhiteFitLM():
             Tmid0k = self.Tmid0[dset]
             for k in self.scankeys[dset]:
                 idkey = '{0}{1}'.format( dset, k )
-                ixsdk = self.keepixs[dset][k]
+                ixsdk = self.data_ixs[dset][k]
                 parsk = pars[self.par_ixs[idkey]]
                 if pmod[idkey].transittype==1:
                     if batp[idkey].limb_dark=='quadratic':
@@ -1754,7 +1717,7 @@ class WFC3WhiteFitLM():
             Tmid0k = self.Tmid0[dset]
             for k in self.scankeys[dset]:
                 idkey = '{0}{1}'.format( dset, k )
-                ixsdk = self.keepixs[dset][k]
+                ixsdk = self.data_ixs[dset][k]
                 parsk = pars[self.par_ixs[idkey]]
                 # Evaluate the planet signal:
                 if pmod[idkey].transittype==1:

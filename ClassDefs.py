@@ -3352,7 +3352,6 @@ class WFC3SpecLightCurves():
         bp.Read()
         ld.bandpass_wavmicr = bp.bandpass_wavmicr
         ld.bandpass_thput = bp.bandpass_thput
-        # TESTING....
         ld_quad = np.zeros( [ self.nchannels, 2 ] )
         ld_nonlin = np.zeros( [ self.nchannels, 4 ] )
         for i in range( self.nchannels ):
@@ -4005,7 +4004,6 @@ class WFC3Spectra():
         print( 'from directory: {0}\n'.format( self.ima_dir ) )
         ecounts2d = {}
         for k in self.rkeys:
-            #self.spectra[k]['ecounts2d'] = []
             ecounts2d[k] = []
             self.spectra[k]['scandirs'] = []
             self.spectra[k]['auxvars'] = {}
@@ -4020,8 +4018,7 @@ class WFC3Spectra():
             cond2 = ( h0['FILTER']==self.filter_str )
             if cond1*cond2:
                 hdu = pyfits.open( self.ima_fpaths[i] )
-                #self.Extract2DEcounts( hdu )
-                ecounts2di, check = self.Extract2DEcounts( hdu ) # testing
+                ecounts2di, check = self.Extract2DEcounts( hdu )
                 if check==False:
                     print( '... {0} of {1} - skipping {2} (appears corrupt science frame?)'
                            .format( i+1, self.nframes, os.path.basename( self.ima_fpaths[i] ) ) )
@@ -4030,8 +4027,8 @@ class WFC3Spectra():
                            .format( i+1, self.nframes, h0['OBSTYPE'], h0['FILTER'] ) )
                     self.tstarts += [ h0['EXPSTART'] ]
                     self.exptimes += [ h0['EXPTIME'] ]
-                    for k in self.rkeys: # testing
-                        ecounts2d[k] += [ ecounts2di[k] ] # testing
+                    for k in self.rkeys:
+                        ecounts2d[k] += [ ecounts2di[k] ]
                     hdu.close()
                     ima_fpaths += [ self.ima_fpaths[i] ]
             else:
@@ -4052,12 +4049,8 @@ class WFC3Spectra():
         for k in self.rkeys:
             bg_ppix = self.spectra[k]['auxvars']['bg_ppix']
             self.spectra[k]['auxvars'] = { 'bg_ppix':np.array( bg_ppix )[ixs] }
-            #ecounts2d = self.spectra[k]['ecounts2d']
-            #self.spectra[k]['ecounts2d'] = np.dstack( ecounts2d )[:,:,ixs]
             ecounts2d[k] = np.dstack( ecounts2d[k] )[:,:,ixs]
-        #print( 'delt hrs....', 24*np.diff( self.jd ) )
-        #pdb.set_trace()
-        return ecounts2d # testing
+        return ecounts2d
 
     
     def SumSpatScanSpectra( self, ecounts2d ):
@@ -4071,7 +4064,7 @@ class WFC3Spectra():
         for k in self.rkeys:
             print( '\n{0}\nExtracting 1D spectra for {1}:'.format( 50*'#', k ) )
             #e2d = self.spectra[k]['ecounts2d']
-            e2d = ecounts2d[k] # testing
+            e2d = ecounts2d[k]
             ninterp = int( 1e4 )
             z = np.shape( e2d )
             ncross = z[cross_axis]

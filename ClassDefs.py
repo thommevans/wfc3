@@ -15,6 +15,8 @@ from . import Systematics
 from .mpfit import mpfit
 
 
+plt.switch_backend( 'agg' )
+
 class WFC3SpecFit():
     def __init__( self ):
         self.slcs = None

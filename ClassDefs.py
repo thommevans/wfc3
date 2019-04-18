@@ -853,13 +853,12 @@ class WFC3WhiteFitLM():
         self.SetupLDPars()
         data = []
         ixs = {} # indices to split vstacked data
-        ixsk = {} # indices to map vstacked data back to original
+        self.keepixs = {} # indices to map vstacked data back to original
         self.pmodels = {} # pmodels for each data configuration
         self.batpars = {} # batpars for each data configuration
         #self.pmodelfs = {}
         self.Tmid0 = {} # literature mid-times for each data configuration
         i1 = 0
-        ixs = {}
         for i in range( ndsets ):
             dset = dsets[i]
             wlc = self.wlcs[dset]
@@ -875,7 +874,7 @@ class WFC3WhiteFitLM():
                 Tmidi -= self.syspars['P'][0]
             self.Tmid0[dset] = Tmidi
             ixs[dset] = {}
-            ixsk[dset] = {}
+            self.keepixs[dset] = []
             nf = 500
             for k in self.scankeys[dset]:
                 jdi = wlc.jd[scanixs[k]]
@@ -887,7 +886,7 @@ class WFC3WhiteFitLM():
                 data += [ np.column_stack( [ jdi, thrsi, torbi, fluxi, uncsi ] ) ]
                 i2 = i1+len( fluxi )
                 ixs[dset][k] = np.arange( i1, i2 )
-                ixsk[dset][k] = np.arange( wlc.jd.size )[scanixs[k]]
+                self.keepixs[dset] += [ np.arange( wlc.jd.size )[scanixs[k]] ]
                 batparik, pmodelik = self.GetBatmanObject( jdi, wlc.config )
                 #batparifk, pmodelifk = self.GetBatmanObject( jdif, wlc.config )
                 idkey = '{0}{1}'.format( dset, k )
@@ -896,10 +895,13 @@ class WFC3WhiteFitLM():
                 #self.pmodelfs[idkey] = pmodelifk # TODO = change to [dset][k]?
                 # Slide the index along for next visit:
                 i1 = i2
+            keepixsd = np.concatenate( self.keepixs[dset] )
+            ixsk = np.argsort( keepixsd )
+            self.keepixs[dset] = keepixsd[ixsk]
         # Package data together in single array for mpfit:
         self.data = np.vstack( data ) 
         self.data_ixs = ixs
-        self.keepixs = ixsk
+        #keepixs = np.concatenate( ixsm )
         #pdb.set_trace()
         return None
 
@@ -1282,10 +1284,15 @@ class WFC3WhiteFitLM():
             pars_fit = self.RunTrials( self.ntrials )
             mfit = self.CalcModel( pars_fit )
             ffit = mfit['psignal']*mfit['ttrend']*mfit['ramp']
+            ixsmg = {}
             for dset in dsets:
+                scandirs = self.wlcs[dset].scandirs[ixsm[dset]]
+                ixsmg['f'] = ixsm[dset][scandirs==1] #testing
+                ixsmg['b'] = ixsm[dset][scandirs==-1] #testing
+                ixsmz = [] #testing
                 for k in self.scankeys[dset]:
                     ixsdk = ixsd[dset][k]
-                    ixsmk = ixsm[dset][k]
+                    ixsmzk = ixsmg[k] #testing
                     idkey = '{0}{1}'.format( dset, k )
                     residsk = self.data[ixsdk,3]-ffit[ixsdk]
                     uncsk = self.data[ixsdk,4]
@@ -1296,8 +1303,11 @@ class WFC3WhiteFitLM():
                                                                data[ixsdk,0][ixs], \
                                                                transittype=tt )
                     ixsd[dset][k] = ixsdk[ixs]
-                    ixsm[dset][k] = ixsmk[ixs]
+                    ixsmz += [ ixsmzk[ixs] ] #testing
                     ndat += len( residsk )
+                ixsmz = np.concatenate( ixsmz ) #testing
+                ixs0 = np.argsort( ixsmz ) #testing
+                ixsm[dset] = ixsmz[ixs0] #testing
             print( 'Iteration={0:.0f}, Nculled={1:.0f}'.format( g+1, ncull ) )
             self.pars_init = pars_fit
         print( '\n{0}\nRescaling measurement uncertainties by:\n'.format( 50*'#' ) )
@@ -1307,7 +1317,7 @@ class WFC3WhiteFitLM():
             for k in self.scankeys[dset]:
                 idkey = '{0}{1}'.format( dset, k )
                 ixsdk = ixsd[dset][k]
-                ixsmk = ixsm[dset][k]
+                #ixsmk = ixsm[dset][k]
                 zk = ( self.data[ixsdk,3]-ffit[ixsdk] )/self.data[ixsdk,4]
                 chi2k = np.sum( zk**2. )
                 rchi2k = chi2k/float( len( residsk )-len( pars_fit[ixsp[idkey]] ) )
@@ -1322,6 +1332,7 @@ class WFC3WhiteFitLM():
         self.pars_fit = None # reset for main FitModel() run
         self.data_ixs = ixsd
         self.keepixs = ixsm
+        print( self.keepixs.keys() )
         return None
 
 

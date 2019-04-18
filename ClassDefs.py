@@ -3,6 +3,7 @@ import copy
 import numpy as np
 import scipy.ndimage, scipy.interpolate
 import astropy.io.fits as pyfits
+import matplotlib
 import matplotlib.pyplot as plt
 #import utils
 import batman

@@ -1774,8 +1774,6 @@ class WFC3WhiteFitLM():
         self.ldpars = {}
         for dset in dsets:
             configs += [ self.wlcs[dset].config ]
-            print( self.wlcs[dset].ld.keys() )
-            pdb.set_trace()
             self.ldpars[configs[-1]] = self.wlcs[dset].ld[k]
         #configs = list( np.unique( np.array( configs ) ) )
         return None

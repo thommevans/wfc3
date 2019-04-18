@@ -14,8 +14,11 @@ from . import UtilityRoutines as UR
 from . import Systematics
 from .mpfit import mpfit
 
+try:
+    os.environ['DISPLAY']
+except:
+    matplotlib.use('Agg')
 
-plt.switch_backend( 'agg' )
 
 class WFC3SpecFit():
     def __init__( self ):
@@ -1770,6 +1773,8 @@ class WFC3WhiteFitLM():
         self.ldpars = {}
         for dset in dsets:
             configs += [ self.wlcs[dset].config ]
+            print( self.wlcs[dset].ld.keys() )
+            pdb.set_trace()
             self.ldpars[configs[-1]] = self.wlcs[dset].ld[k]
         #configs = list( np.unique( np.array( configs ) ) )
         return None

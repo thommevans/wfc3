@@ -1175,7 +1175,7 @@ class WFC3WhiteFitLM():
         ixsd = self.data_ixs
         # For each scan direction, the systematics model consists of a
         # double-exponential ramp (a1,a2,a3,a4,a5):
-        rlabels0 = [ 'a0', 'a1', 'a2', 'a3', 'a4', 'a5' ]
+        rlabels0 = [ 'a1', 'a2', 'a3', 'a4', 'a5' ]
         # Initial values for systematics parameters:
         rlabels = []
         rfixed = []
@@ -1237,8 +1237,8 @@ class WFC3WhiteFitLM():
             print( i )
             b0 = flux[-1]
             b1 = 0
-            # These starting values seem to produce reasonable results:            
-            pinit = [ 0, (1e-3)*np.random.randn(), 0.1+0.005*np.random.random(), \
+            # These starting values seem to produce reasonable results:
+            pinit = [ 0, 0.1+0.005*np.random.random(), \
                       (1e-3)*np.random.randn(), 0.005+0.005*np.random.random(), \
                       ( 0.05+0.001*np.random.random() )/60., b0, b1 ]
             if self.ttrend=='quadratic': pinit += [ 0 ]
@@ -1246,8 +1246,8 @@ class WFC3WhiteFitLM():
             rms[i] = CalcRMS( pfiti )
             pfit += [ pfiti ]
         pbest = pfit[np.argmin(rms)]            
-        a0, a1, a2, a3, a4, a5 = pbest[:-nbase]
-        rpars = [ a0, a1, a2, a3, a4, a5 ]
+        a1, a2, a3, a4, a5 = pbest[:-nbase]
+        rpars = [ a1, a2, a3, a4, a5 ]
         tfit, rfit = rfunc( thrs, torb, pbest )
         fluxc = flux/( tfit*rfit )
         return rpars, fluxc

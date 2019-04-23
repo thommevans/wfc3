@@ -928,7 +928,7 @@ class mpfit:
         # FIXED parameters ?
         pfixed = self.parinfo(parinfo, 'fixed', default=False, n=npar)
         pfixed = (pfixed == 1) | (ptied != '')   # Tied parameters are also fixed
-
+        
         # Finite differencing step, absolute and relative, and sidedness of deriv.
         step = self.parinfo(parinfo, 'step', default=0., n=npar)
         dstep = self.parinfo(parinfo, 'relstep', default=0., n=npar)
@@ -956,7 +956,7 @@ class mpfit:
         # Compose only VARYING parameters
         self.params = xall.copy()     # self.params is the set of parameters to be returned
         x = self.params[ifree]  # x is the set of free parameters
-
+        
         # LIMITED parameters ?
         limited = self.parinfo(parinfo, 'limited', default=[False, False], n=npar)
         limited = limited == 1   # Ensure this is boolean

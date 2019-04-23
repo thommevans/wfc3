@@ -221,7 +221,6 @@ class WFC3SpecFit():
         else:
             print( 'No outliers culled' )
         pfitdict = {}
-        #pdb.set_trace()
         for i in range( len( parkeys ) ):
             pfitdict[parkeys[i]] = pfit[i]        
         return ixskeep, pfitdict
@@ -1264,9 +1263,10 @@ class WFC3WhiteFitLM():
         for i in range( ntrials ):
             print( i+1, ntrials )
             for j in range( npar ):
-                v = self.pars_init[j]
-                dv = 0.01*np.random.randn()*np.abs( v )
-                self.pars_init[j] = v + dv
+                if self.fixed[j]==0:
+                    v = self.pars_init[j]
+                    dv = 0.01*np.random.randn()*np.abs( v )
+                    self.pars_init[j] = v + dv
             self.FitModel( save_to_file=False, verbose=False )
             chi2[i] = self.CalcChi2()
             trials += [ self.pars_fit['pvals'] ]
@@ -1388,8 +1388,7 @@ class WFC3WhiteFitLM():
 
     
     def FitModel( self, save_to_file=False, verbose=True ):
-        def NormDeviates( pars, fjac=None, data=None, ixsp=None, ixsd=None, \
-                          pmodels=None, batpars=None, Tmidlits=None ):
+        def NormDeviates( pars, fjac=None, data=None ):
             """
             Function defined in format required by mpfit.
             """
@@ -1401,11 +1400,10 @@ class WFC3WhiteFitLM():
         npar = len( self.par_labels )
         parinfo = []
         for i in range( npar ):
-            parinfo += [ { 'value':self.pars_init[i], 'fixed':self.fixed[i], \
+            parinfo += [ { 'value':self.pars_init[i], 'fixed':int( self.fixed[i] ), \
                            'parname':self.par_labels[i], \
-                           'limited':[0,0], 'limits':[0.,0.]} ]
-        fa = { 'data':self.data, 'ixsp':self.par_ixs,  'ixsd':self.data_ixs,  \
-               'pmodels':self.pmodels,  'batpars':self.batpars,  'Tmidlits':self.Tmid0 }
+                           'limited':[0,0], 'limits':[0.,0.] } ]
+        fa = { 'data':self.data }
         m = mpfit( NormDeviates, self.pars_init, functkw=fa, parinfo=parinfo, \
                    maxiter=1e3, ftol=1e-5, quiet=True )
         if (m.status <= 0): print( 'error message = ', m.errmsg )
@@ -2952,7 +2950,6 @@ class WFC3WhiteFitGP():
         outp['analysis'] = self.analysis
         outp['cullixs_init'] = self.cullixs
         outp['keepixs_final'] = self.keepixs_final
-        #pdb.set_trace()
         outp['batpars'] = self.batpars
         outp['pmodels'] = self.pmodels
         outp['bestfits'] = bestfits
@@ -4110,7 +4107,6 @@ class WFC3Spectra():
                     e1d[i,:] = -1
             self.spectra[k]['auxvars']['cdcs'] = cdcs
             self.spectra[k]['ecounts1d'] = e1d
-            #pdb.set_trace()
         return None
 
     
@@ -4184,8 +4180,6 @@ class WFC3Spectra():
             ecounts2d['raw'] = lastr_ecounts.copy() # testing
             lastr_bgppix = self.BackgroundMed( lastr_ecounts ) # testing
             ecounts2d['rlast'] = lastr_ecounts.copy() - lastr_bgppix # testing
-            #print( 'ttttt', np.shape( lastr_ecounts ) )
-            #pdb.set_trace()
             for k in list( self.spectra.keys() ):
                 self.spectra[k]['auxvars']['bg_ppix'] += [ lastr_bgppix ]
             # Second, extract flux by summing read-differences:

@@ -3,7 +3,6 @@ import copy
 import numpy as np
 import scipy.ndimage, scipy.interpolate
 import astropy.io.fits as pyfits
-import matplotlib
 import matplotlib.pyplot as plt
 #import utils
 import batman
@@ -14,11 +13,6 @@ from bayes.gps_dev.gps import gp_class, kernels
 from . import UtilityRoutines as UR
 from . import Systematics
 from .mpfit import mpfit
-
-try:
-    os.environ['DISPLAY']
-except:
-    matplotlib.use('Agg')
 
 
 class WFC3SpecFit():
@@ -1065,11 +1059,8 @@ class WFC3WhiteFitLM():
             for l in [ 'EcDepth', 'aRs', 'b' ]:
                 try:
                     pinit0 += [ self.ppar_init[l] ]
-                    #print( 'aa', l, self.ppar_init[l] )
                 except:
-                    pinit0 += [ self.syspars[l][0] ]
-                    #print( 'bb', l, self.syspars[l] )
-            #pdb.set_trace()
+                    pinit0 += [ self.syspars[l] ]
             pinit0 = np.array( pinit0 )
             if self.orbpars.find( 'fixed' )>=0:
                 pfixed = np.array( [ 0, 1, 1 ] )
@@ -1178,7 +1169,7 @@ class WFC3WhiteFitLM():
         ixsd = self.data_ixs
         # For each scan direction, the systematics model consists of a
         # double-exponential ramp (a1,a2,a3,a4,a5):
-        rlabels0 = [ 'a1', 'a2', 'a3', 'a4', 'a5' ]
+        rlabels0 = [ 'a0', 'a1', 'a2', 'a3', 'a4', 'a5' ]
         # Initial values for systematics parameters:
         rlabels = []
         rfixed = []
@@ -1240,8 +1231,8 @@ class WFC3WhiteFitLM():
             print( i )
             b0 = flux[-1]
             b1 = 0
-            # These starting values seem to produce reasonable results:
-            pinit = [ 0, 0.1+0.005*np.random.random(), \
+            # These starting values seem to produce reasonable results:            
+            pinit = [ 0, (1e-3)*np.random.randn(), 0.1+0.005*np.random.random(), \
                       (1e-3)*np.random.randn(), 0.005+0.005*np.random.random(), \
                       ( 0.05+0.001*np.random.random() )/60., b0, b1 ]
             if self.ttrend=='quadratic': pinit += [ 0 ]
@@ -1249,8 +1240,8 @@ class WFC3WhiteFitLM():
             rms[i] = CalcRMS( pfiti )
             pfit += [ pfiti ]
         pbest = pfit[np.argmin(rms)]            
-        a1, a2, a3, a4, a5 = pbest[:-nbase]
-        rpars = [ a1, a2, a3, a4, a5 ]
+        a0, a1, a2, a3, a4, a5 = pbest[:-nbase]
+        rpars = [ a0, a1, a2, a3, a4, a5 ]
         tfit, rfit = rfunc( thrs, torb, pbest )
         fluxc = flux/( tfit*rfit )
         return rpars, fluxc
@@ -3477,8 +3468,10 @@ class WFC3WhiteLightCurve():
             fluxn = flux[-1]
             self.whitelc[k]['flux'] = flux/fluxn
             self.whitelc[k]['uncs'] = np.sqrt( flux )/fluxn
+        pdb.set_trace()
         self.GetLD( spec1d )
         self.Save()
+        pdb.set_trace()
         return None
 
     def GetLD( self, spec1d ):

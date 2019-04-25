@@ -20,7 +20,9 @@ try:
 except:
     matplotlib.use('Agg')
 
-
+# TODO: save pickle output in format that doesn't require the wfc3 package
+# to be opened, i.e. don't save wfc3 class objects in this pickle output.
+    
 class WFC3SpecFit():
     def __init__( self ):
         self.slcs = None
@@ -804,22 +806,6 @@ class WFC3SpecFit():
         return logp_val
 
 class WFC3SpecFitLM():
-    # Method is to loop over each channel in the external wrapper.
-    # Therefore, each routine below should apply to a specific chix.
-    # fit = ClassDefs.WFC3SpecFitLM()
-    # fit.slcs = <dictionary, element for each dataset>
-    # fit.wmles = <dictionary, element for each dataset>
-    # fit.syspars = shared.GetSyspars() # one for all datasets; LD treated per channel below
-    # fit.orbpars = <TODO = HAVE THIS IN WMLE AND EXTRACTED HERE...>
-    # fit.ttrend = 'linear'
-    # chixs = np.arange( nchannels ) # or a list
-    # nfits = len( chixs )
-    # for i in range( nfits ):
-    #   fit.chix = chixs[i]
-    #   fit.PrepData() # within loop because easier 
-    #   fit.PrepModelParams()
-    #   fit.PreFitting() ? check... should be similar to white but w/o PrelimDEFit()?
-    #   fit.FitModel( save_to_file=True )
     
     def __init__( self ):
         self.results_dir = ''
@@ -830,6 +816,7 @@ class WFC3SpecFitLM():
         self.orbpars = {}
         self.Tmids = {}
         self.RpRs_shared = True
+        self.EcDepth_shared = True
         self.slcs = {}
         self.syspars = {}
         self.ttrend = 'linear'
@@ -859,6 +846,7 @@ class WFC3SpecFitLM():
             dset = self.dsets[i]
             #Tmidi = self.Tmids[dset]
             slcs = self.slcs[dset]
+            self.wavedgesmicr = slcs.wavedgesmicr[self.chix]
             ixsi = np.arange( slcs.jd.size )
             scanixs = {}
             scanixs['f'] = ixsi[slcs.scandirs==1]
@@ -891,8 +879,6 @@ class WFC3SpecFitLM():
         # Package data together in single array for mpfit:
         self.data = np.vstack( data ) 
         self.data_ixs = ixs
-        #keepixs = np.concatenate( ixsm )
-        #pdb.set_trace()
         return None
     
     def PrepModelParams( self ):
@@ -1028,7 +1014,7 @@ class WFC3SpecFitLM():
         """
         #dsets = list( self.wlcs.keys() )
         config = self.slcs[self.dsets[0]].config
-        ldpars = self.ldpars[config]
+        ldpars = self.ldpars[config][self.chix,:]
         pinit0 = []
         if transittype=='primary':
             s = 3
@@ -1057,11 +1043,137 @@ class WFC3SpecFitLM():
         return plabels, pinit0, pfixed
     
     def PreFitting( self, niter=2, sigcut=10 ):
+        ixsd = self.data_ixs
+        ixsm = self.keepixs
+        ixsp = self.par_ixs
+        batp = self.batpars
+        syspars = self.syspars
+        data = self.data
+        npar = len( self.pars_init )
+        print( '\nRunning initial fit for full model:' )
+        self.pars_init = self.RunTrials( 5 )
+        print( 'Done.\n' )
+        ncull = 0
+        ndat = 0
+        print( '\nIterating over multiple trials to flag outliers:' )
+        tt = syspars['tr_type']
+        for g in range( niter ):
+            pars_fit = self.RunTrials( self.ntrials )
+            mfit = self.CalcModel( pars_fit )
+            ffit = mfit['psignal']*mfit['ttrend']
+            ixsmg = {}
+            for dset in self.dsets:
+                scandirs = self.slcs[dset].scandirs[ixsm[dset]]
+                ixsmg['f'] = ixsm[dset][scandirs==1]
+                ixsmg['b'] = ixsm[dset][scandirs==-1]
+                ixsmz = []
+                for k in self.scankeys[dset]:
+                    ixsdk = ixsd[dset][k]
+                    ixsmzk = ixsmg[k]
+                    idkey = '{0}{1}'.format( dset, k )
+                    residsk = self.data[ixsdk,3]-ffit[ixsdk]
+                    uncsk = self.data[ixsdk,4]
+                    nsig = np.abs( residsk )/uncsk                           
+                    ixs = ( nsig<sigcut ) # within threshold
+                    ncull += int( nsig.size-ixs.sum() )
+                    self.pmodels[idkey] = batman.TransitModel( batp[idkey], \
+                                                               data[ixsdk,0][ixs], \
+                                                               transittype=tt )
+                    ixsd[dset][k] = ixsdk[ixs]
+                    ixsmz += [ ixsmzk[ixs] ]
+                    ndat += len( residsk )
+                ixsmz = np.concatenate( ixsmz )
+                ixs0 = np.argsort( ixsmz )
+                ixsm[dset] = ixsmz[ixs0]
+            print( 'Iteration={0:.0f}, Nculled={1:.0f}'.format( g+1, ncull ) )
+            self.pars_init = pars_fit
+        print( '\n{0}\nRescaling measurement uncertainties by:\n'.format( 50*'#' ) )
+        rescale = {}
+        for dset in self.dsets:
+            rescale[dset] = {}
+            for k in self.scankeys[dset]:
+                idkey = '{0}{1}'.format( dset, k )
+                ixsdk = ixsd[dset][k]
+                zk = ( self.data[ixsdk,3]-ffit[ixsdk] )/self.data[ixsdk,4]
+                chi2k = np.sum( zk**2. )
+                rchi2k = chi2k/float( len( residsk )-len( pars_fit[ixsp[idkey]] ) )
+                rescale[dset][k] = np.sqrt( rchi2k )
+                print( '{0:.2f} for {1}{2}'.format( rescale[dset][k], dset, k ) )
+        for dset in self.dsets:
+            for k in self.scankeys[dset]:
+                self.data[ixsd[dset][k],4] *= rescale[dset][k]
+        self.uncertainties_rescale = rescale
+        print( '{0}\n'.format( 50*'#' ) )    
+        self.model_fit = None # reset for main FitModel() run
+        self.pars_fit = None # reset for main FitModel() run
+        self.data_ixs = ixsd
+        self.keepixs = ixsm
         return None
-    def CalcModel( self ):
-        return None
+
+    def CalcModel( self, pars ):
+        """
+        For a parameter array for a specific dataset, the parameters
+        are *always* the following (at least for now):
+           RpRs, ldcoeff1, ..., ldcoeffN, b1, b2, (b3)
+        or:
+           EcDepth, b1, b2, (b3)
+        So you can always unpack these in this order and send them as
+        inputs to their appropriate functions. 
+        """
+        if self.ttrend=='linear':
+            def bfunc( thrs, pars ):
+                return pars[0] + pars[1]*thrs
+        elif self.ttrend=='quadratic':
+            def bfunc( thrs, pars ):
+                return pars[0] + pars[1]*thrs + pars[2]*( thrs**2. )
+        else:
+            pdb.set_trace()
+        ndat, nvar = np.shape( self.data )
+        batp = self.batpars
+        pmod = self.pmodels
+        psignal = np.zeros( ndat )
+        ttrend = np.zeros( ndat )
+        jd = self.data[:,0]
+        thrs = self.data[:,1]
+        torb = self.data[:,2]
+        flux = self.data[:,3]
+        uncs = self.data[:,4]
+        ndsets = len( self.dsets )
+        self.UpdateBatpars( pars )
+
+        for i in range( ndsets ):
+            dset = self.dsets[i]
+            for k in self.scankeys[dset]:
+                idkey = '{0}{1}'.format( dset, k )
+                ixsdk = self.data_ixs[dset][k]
+                parsk = pars[self.par_ixs[idkey]]
+                if pmod[idkey].transittype==1:
+                    if batp[idkey].limb_dark=='quadratic':
+                        m = 2
+                    elif batp[idkey].limb_dark=='nonlinear':
+                        m = 4
+                    else:
+                        pdb.set_trace()
+                    s = 1+m # RpRs
+                else:
+                    s = 1 # EcDepth
+                psignal[ixsdk] = pmod[idkey].light_curve( batp[idkey] )
+                # Evaluate the systematics signal:
+                ttrend[ixsdk] = bfunc( thrs[ixsdk], parsk[s:] )
+        return { 'psignal':psignal, 'ttrend':ttrend }
+
     def CalcChi2( self ):
-        return None
+        pfit = self.model_fit['psignal'] # planet signal
+        sfit = self.model_fit['ttrend'] # systematics
+        ffit = pfit*sfit
+        chi2 = 0
+        for dset in list( self.data_ixs.keys() ):
+            for k in list( self.data_ixs[dset].keys() ):
+                ixsdk = self.data_ixs[dset][k]
+                residsk = ( self.data[ixsdk,3]-ffit[ixsdk] )
+                uncsk = self.data[ixsdk,4]
+                chi2 += np.sum( ( residsk/uncsk )**2. )
+        return chi2
     
     def SetupLDPars( self ):
         ldkey = UR.GetLDKey( self.ld )
@@ -1112,32 +1224,193 @@ class WFC3SpecFitLM():
         return batpar, pmodel
 
     def UpdateBatpars( self, pars ):
+        batp = self.batpars
+        pmod = self.pmodels
+        ndsets = len( self.dsets )
+        for i in range( ndsets ):
+            dset = self.dsets[i]
+            for k in self.scankeys[dset]:
+                idkey = '{0}{1}'.format( dset, k )
+                ixsdk = self.data_ixs[dset][k]
+                parsk = pars[self.par_ixs[idkey]]
+                # Evaluate the planet signal:
+                if pmod[idkey].transittype==1:
+                    # Primary transits have RpRs and optionally limb darkening:
+                    batp[idkey].rp = parsk[0]
+                    if batp[idkey].limb_dark=='quadratic':
+                        m = 2
+                    elif batp[idkey].limb_dark=='nonlinear':
+                        m = 4
+                    else:
+                        pdb.set_trace()
+                    batp[idkey].u = parsk[1:1+m]
+                elif pmod[idkey].transittype==2:
+                    # Secondary eclipses only have the eclipse depth:
+                    batp[idkey].fp = parsk[0]
+                else:
+                    pdb.set_trace()
+        self.batpars = batp
         return None
+    
     def BestFitsOut( self ):
+        jd = self.data[:,0]
+        self.bestfits = {}
+        nf = 500
+        for dset in list( self.data_ixs.keys() ):
+            self.bestfits[dset] = {}
+            for k in list( self.data_ixs[dset].keys() ):
+                idkey = '{0}{1}'.format( dset, k )
+                ixsdk = self.data_ixs[dset][k]
+                pfitdk = self.model_fit['psignal'][ixsdk] # planet signal
+                tfitdk = self.model_fit['ttrend'][ixsdk] # baseline trend
+                jddk = jd[ixsdk]
+                jdfdk = np.linspace( jddk.min(), jddk.max(), nf )
+                pmodfk = batman.TransitModel( self.batpars[idkey], jdfdk, \
+                                              transittype=self.syspars['tr_type'] )
+                pfitfdk = pmodfk.light_curve( self.batpars[idkey] )
+                self.bestfits[dset][k] = {}
+                self.bestfits[dset][k]['jd'] = jddk
+                self.bestfits[dset][k]['psignal'] = pfitdk
+                self.bestfits[dset][k]['ttrend'] = tfitdk
+                self.bestfits[dset][k]['jdf'] = jdfdk
+                self.bestfits[dset][k]['psignalf'] = pfitfdk
         return None
+    
     def TxtOut( self, save_to_file=True ):
-        return None
+        ostr = ''
+        ostr +=  '{0}\n# status = {1}'.format( 50*'#', self.pars_fit['status'] )
+        try:
+            ostr1 = '\n# Uncertainty rescaling factors:'
+            for k in list( self.data_ixs.keys() ):
+                ostr1 += '\n#  {0} = {1:.4f}'.format( k, self.uncertainties_rescale[k] )
+            ostr += ostr1
+        except:
+            pass
+        ostr += '\n# Fit results:\n#{0}'.format( 49*'-' )
+        npar = len( self.fixed )
+        pvals = self.pars_fit['pvals']
+        puncs = self.pars_fit['puncs']
+        for i in range( npar ):
+            col1 = '{0}'.format( self.par_labels[i].rjust( 15 ) )
+            col2 = '{0:20f}'.format( pvals[i] ).replace( ' ', '' ).rjust( 20 )
+            col3 = '{0:20f}'.format( puncs[i] ).replace( ' ', '' ).ljust( 20 )
+            if self.fixed[i]==0:
+                ostr += '\n{0} = {1} +/- {2} (free)'.format( col1, col2, col3 )
+            else:
+                ostr += '\n{0} = {1} +/- {2} (fixed)'.format( col1, col2, col3 )
+        ostr += '\n# Tmid assumed for each dataset:'
+        for d in list( self.slcs.keys() ):
+            ostr += '\n#  {0} = {1}'.format( d, self.Tmids[d] )
+        if save_to_file==True:
+            ofile = open( self.specfit_fpath_txt, 'w' )
+            ofile.write( ostr )
+            ofile.close()
+        return ostr
+
     def GetODir( self ):
+        dirbase = os.path.join( self.results_dir, 'spec' )
+        if self.syspars['tr_type']=='primary':
+            dirbase = os.path.join( dirbase, self.ld )
+        else:
+            dirbase = os.path.join( dirbase, 'ldoff' )
+        dsets = UR.NaturalSort( self.dsets )
+        dirext = ''
+        for k in dsets:
+            dirext += '+{0}'.format( k )
+        dirext = dirext[1:]
+        if len( dsets )>1:
+            if self.syspars['tr_type']=='primary':
+                if self.RpRs_shared==True:
+                    dirext += '.RpRs_shared'
+                else:
+                    dirext += '.RpRs_individ'
+            elif self.syspars['tr_type']=='secondary':
+                if self.EcDepth_shared==True:
+                    dirext += '.EcDepth_shared'
+                else:
+                    dirext += '.EcDepth_individ'
+            else:
+                pdb.set_trace()
+        dirbase = os.path.join( dirbase, dirext )
+        if self.akey=='':
+            print( '\n\nMust set akey to create output folder for this particular analysis\n\n' )
+            pdb.set_trace()
+        else:
+            self.odir = os.path.join( dirbase, self.akey )
+        self.odir = os.path.join( self.odir, 'nchan{0:.0f}'.format( self.nchannels ) )
+        # Don't bother with the reduction parameters in the filenames.
+        # That can be done separately with a custom routine defined by
+        # the user if it's really important.
         return None
+    
     def GetFilePath( self ):
-        return None
+        self.GetODir()
+        if os.path.isdir( self.odir )==False:
+            os.makedirs( self.odir )
+        #if self.beta_free==True:
+        #    betastr = 'beta_free'
+        #else:
+        #    betastr = 'beta_fixed'
+        oname = 'spec.{0}.{1}.mpfit.{2}base.ch{3:.0f}.pkl'\
+            .format( self.analysis, self.lctype, self.ttrend, self.chix )
+        opath = os.path.join( self.odir, oname )
+        return opath
+    
     def Save( self ):
+        outp = {}
+        outp['slcs'] = self.slcs
+        outp['wmles'] = self.wmles        
+        outp['analysis'] = self.analysis
+        outp['lctype'] = self.lctype
+        outp['chix'] = self.chix
+        # vstacked data:
+        outp['data_ixs'] = self.data_ixs
+        outp['data'] = self.data
+        #outp['cullixs_init'] = self.cullixs
+        outp['keepixs_final'] = self.keepixs
+        outp['par_ixs'] = self.par_ixs
+        outp['model_fit'] = self.model_fit
+        self.BestFitsOut()
+        outp['bestfits'] = self.bestfits
+        outp['uncertainties_rescale'] = self.uncertainties_rescale
+        outp['par_labels'] = self.par_labels
+        outp['pars_fit'] = self.pars_fit
+        outp['mle'] = {}
+        for i in range( self.npar ):
+            outp['mle'][self.par_labels[i]] = self.pars_fit['pvals'][i]
+        outp['fixed'] = self.fixed
+        outp['batpars'] = self.batpars
+        outp['pmodels'] = self.pmodels
+        outp['syspars'] = self.syspars
+        outp['orbpars'] = self.orbpars
+        outp['Tmids'] = self.Tmids
+        opath_pkl = self.GetFilePath()
+        ofile = open( opath_pkl, 'wb' )
+        pickle.dump( outp, ofile )
+        ofile.close()
+        opath_txt = opath_pkl.replace( '.pkl', '.txt' )
+        self.specfit_fpath_pkl = opath_pkl
+        self.specfit_fpath_txt = opath_txt
+        # Write to the text file:
+        self.TxtOut( save_to_file=True )
+        print( '\nSaved:\n{0}\n{1}\n'.format( self.specfit_fpath_pkl, \
+                                              self.specfit_fpath_txt ) )
         return None
     
     
-    def FitModel( self ):
+    def FitModel( self, save_to_file=False, verbose=True ):
         def NormDeviates( pars, fjac=None, data=None ):
             """
             Function defined in format required by mpfit.
             """
             m = self.CalcModel( pars )
-            fullmodel = m['psignal']*m['ttrend']*m['ramp']
+            fullmodel = m['psignal']*m['ttrend']
             resids = data[:,3]-fullmodel
             status = 0
             return resids/data[:,4]
-        npar = len( self.par_labels )
+        self.npar = len( self.par_labels )
         parinfo = []
-        for i in range( npar ):
+        for i in range( self.npar ):
             parinfo += [ { 'value':self.pars_init[i], 'fixed':int( self.fixed[i] ), \
                            'parname':self.par_labels[i], \
                            'limited':[0,0], 'limits':[0.,0.] } ]
@@ -1150,13 +1423,13 @@ class WFC3SpecFitLM():
         self.model_fit = self.CalcModel( m.params )
         if save_to_file==True:
             self.Save()
-            self.Plot()
+            #self.Plot() # TODO
         ostr = self.TxtOut( save_to_file=save_to_file )
         if verbose==True:
             print( ostr )
         return None
     
-    def RunTrials( self ):
+    def RunTrials( self, ntrials ):
         """
         Fit the light curve model using multiple randomized starting parameter values.
         """
@@ -1729,7 +2002,6 @@ class WFC3WhiteFitLM():
         self.pars_fit = None # reset for main FitModel() run
         self.data_ixs = ixsd
         self.keepixs = ixsm
-        print( self.keepixs.keys() )
         return None
 
 
@@ -1757,8 +2029,6 @@ class WFC3WhiteFitLM():
                 self.bestfits[dset][k]['ramp'] = rfitdk
                 self.bestfits[dset][k]['jdf'] = jdfdk
                 self.bestfits[dset][k]['psignalf'] = pfitfdk
-                # TODO = add baseline trend, but a little fiddly the way
-                # it's currently set up...
         return None
     
     def CalcChi2( self ):
@@ -1881,19 +2151,18 @@ class WFC3WhiteFitLM():
             b = float( self.syspars['b'] )
         outp['orbpars']['aRs'] = aRs
         outp['orbpars']['b'] = b
-        outp['orbpars']['incl'] = np.rad2deg( np.arccos( aRs/b ) )
+        outp['orbpars']['incl'] = np.rad2deg( np.arccos( b/aRs ) )
         outp['Tmids'] = self.Tmids
         outp['Tmid0'] = self.Tmid0
         opath_pkl = self.GetFilePath()
         ofile = open( opath_pkl, 'wb' )
         pickle.dump( outp, ofile )
         ofile.close()
-        pdb.set_trace()
         opath_txt = opath_pkl.replace( '.pkl', '.txt' )
         self.whitefit_fpath_pkl = opath_pkl
         self.whitefit_fpath_txt = opath_txt
         # Write to the text file:
-        self.TxtOut( save_to_file=True ) # TODO
+        self.TxtOut( save_to_file=True )
         print( '\nSaved:\n{0}\n{1}\n'.format( self.whitefit_fpath_pkl, \
                                               self.whitefit_fpath_txt ) )
         return None

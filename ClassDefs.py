@@ -1442,7 +1442,7 @@ class WFC3SpecFitLM():
             for j in range( npar ):
                 if self.fixed[j]==0:
                     v = self.pars_init[j]
-                    dv = 0.01*np.random.randn()*np.abs( v )
+                    dv = 0.05*np.random.randn()*np.abs( v )
                     self.pars_init[j] = v + dv
             self.FitModel( save_to_file=False, verbose=False )
             chi2[i] = self.CalcChi2()
@@ -1915,7 +1915,7 @@ class WFC3WhiteFitLM():
             for j in range( npar ):
                 if self.fixed[j]==0:
                     v = self.pars_init[j]
-                    dv = 0.01*np.random.randn()*np.abs( v )
+                    dv = 0.05*np.random.randn()*np.abs( v )
                     self.pars_init[j] = v + dv
             self.FitModel( save_to_file=False, verbose=False )
             chi2[i] = self.CalcChi2()
@@ -2102,9 +2102,15 @@ class WFC3WhiteFitLM():
             else:
                 ostr += '\n{0} = {1} +/- {2} (fixed)'.format( col1, col2, col3 )
         ostr += '\n# Tmid assumed for each dataset:'
-        for d in list( self.wlcs.keys() ):
+        for d in list( self.dsets ):
             ostr += '\n#  {0} = {1}'.format( d, self.Tmid0[d] )
         if save_to_file==True:
+            ostr += '\n# Photon noise rescaling factors:'
+            for d in list( self.dsets ):
+                for k in self.scankeys[d]:
+                    idkey = '{0}{1}'.format( d, k )
+                    beta = self.uncertainties_rescale[d][k]
+                    ostr += '\n#  {0} = {1:.2f}'.format( idkey, beta )
             ofile = open( self.whitefit_fpath_txt, 'w' )
             ofile.write( ostr )
             ofile.close()
@@ -3913,6 +3919,13 @@ class WFC3SpecLightCurves():
         self.ss_wavshift_pix = {}
         self.ss_vstretch = {}
         self.ss_enoise = {}
+        if self.ss_dispbound_ixs is 'speclc_range':
+            nwav = int( wavmicr.size )
+            dwav0 = np.abs( wavmicr-self.wavedgesmicr[0][0] )
+            dwav1 = np.abs( wavmicr-self.wavedgesmicr[-1][1] )
+            ix0 = np.arange( nwav )[np.argmin( dwav0 )]
+            ix1 = np.arange( nwav )[np.argmin( dwav1 )]
+            self.ss_dispbound_ixs = [ ix0, ix1 ]
         for j in self.scankeys:
             ixsj = ( self.scandirs==UR.ScanVal( j ) )
             ecounts1dj = ecounts1d[ixsj,:]

@@ -857,6 +857,7 @@ class WFC3SpecFitLM():
         i1 = 0
         for i in range( ndsets ):
             dset = self.dsets[i]
+            #Tmidi = self.Tmids[dset]
             slcs = self.slcs[dset]
             ixsi = np.arange( slcs.jd.size )
             scanixs = {}
@@ -876,7 +877,7 @@ class WFC3SpecFitLM():
                 i2 = i1+len( fluxi )
                 ixs[dset][k] = np.arange( i1, i2 )
                 self.keepixs[dset] += [ np.arange( slcs.jd.size )[scanixs[k]] ]
-                batparik, pmodelik = self.GetBatmanObject( jdi, slcs.config )
+                batparik, pmodelik = self.GetBatmanObject( dset, jdi, slcs.config )
                 #batparifk, pmodelifk = self.GetBatmanObject( jdif, wlc.config )
                 idkey = '{0}{1}'.format( dset, k )
                 self.pmodels[idkey] = pmodelik # TODO = change to [dset][k]?
@@ -895,16 +896,166 @@ class WFC3SpecFitLM():
         return None
     
     def PrepModelParams( self ):
+        """
+        Sets up the arrays organizing the parameters in a format that can
+        then be used with mpfit. Returns:
+        'labels' - A list of strings giving the names of each parameter.
+        'fixed' - An array of 1's and 0's indicating which parameters are
+        held fixed and which are allowed to vary, as per the 'case' input.
+        'pars_init' - An array containing the default starting values
+        for each parameter.
+        'ixs' - A dictionary containing indices that map the parameters from
+        each individual dataset onto the joint parameter list that gets
+        passed to mpfit.
+        """
+        #dsets = list( self.wlcs.keys() )
+        ndsets = len( self.dsets )
+        # Determine preliminary values for baseline and planet parameters:
+        p, b = self.PrepPlanetPars( self.syspars['tr_type'] )
+        # Combine into global parameter list:
+        nppar_total = len( p['pars_init'] )
+        self.pars_init = np.concatenate( [ p['pars_init'], b['pars_init'] ] )
+        self.par_labels = np.concatenate( [ p['labels'], b['labels'] ] )
+        self.fixed = np.concatenate( [ p['fixed'], b['fixed'] ] )
+        ixs = {}
+        c = 0
+        for i in range( ndsets ):
+            dset = self.dsets[i]
+            ixsi = []
+            for j in range( len( self.scankeys[dset] ) ):
+                idkey = '{0}{1}'.format( dset, self.scankeys[dset][j] )
+                bixsij = nppar_total + b['ixs'][idkey]
+                ixs[idkey] = np.concatenate( [ p['ixs'][dset], bixsij ] )
+        self.par_ixs = ixs
         return None
+    
     def PrepPlanetPars( self, transittype ):
-        # PROBABLY NEED TO TAKE THE WHITE FIT AND
-        # SET PARAMETERS APPROPRIATELY.
-        return None
+        """        
+        Returns dictionaries for the planet and baseline parameters, containing:
+          ixs = dictionary with indices for each dataset
+          labels = list of parameter labels
+          fixed = list of which parameters are fixed and free
+          init = list of initial values for each parameter
+        """
+        plabels, pinit, pfixed = self.InitialPPars( transittype )
+        blabels0, binit0, bfixed0 = self.InitialBPars()        
+        ng = len( pinit )
+        pixsg = np.arange( ng ) # global (across visits) planet parameters
+        pixs = {}
+        bixs = {}
+        ndsets = len( self.dsets )
+        blabels = []
+        bfixed = []
+        binit = []
+        c = 0 # counter
+        for k in range( ndsets ):
+            pixs[self.dsets[k]] = pixsg
+            bparsk = self.PrelimBpars( self.dsets[k] )
+            blabels += [ bparsk['blabels'] ]
+            bfixed = np.concatenate( [ bfixed, bparsk['bfixed'] ] )
+            binit = np.concatenate( [ binit, bparsk['bpars_init'] ] )
+            for i in list( bparsk['bixs'].keys() ):
+                bixs[i] = bparsk['bixs'][i]+c
+            c += len( bparsk['blabels'] )
+        plabels = np.array( plabels )
+        blabels = np.array( blabels ).flatten()
+        p = { 'labels':plabels, 'fixed':pfixed, 'pars_init':pinit, 'ixs':pixs }
+        b = { 'labels':blabels, 'fixed':bfixed, 'pars_init':binit, 'ixs':bixs }
+        return p, b
+
     def InitialBPars( self ):
-        # SHOULD BE POSSIBLE TO COPY DIRECTLY FROM WHITE FIT.
-        return None
+        """
+        Returns clean starting arrays for baseline trend arrays.
+        """
+        if self.ttrend=='linear':
+            binit0 = [ 1, 0 ]
+            bfixed0 = [ 0, 0 ]
+            blabels0 = [ 'b0', 'b1' ]
+        elif self.ttrend=='quadratic':
+            binit0 = [ 1, 0, 0 ]
+            bfixed0 = [ 0, 0, 0 ]
+            blabels0 = [ 'b0', 'b1', 'b2' ]
+        return blabels0, binit0, bfixed0
+    
+    def PrelimBpars( self, dataset ):
+        """
+        """
+        blabels0, binit0, bfixed0 = self.InitialBPars()
+        nbpar = len( binit0 )
+        slcs = self.slcs[dataset]
+        ixs = np.arange( slcs.jd.size )
+        scanixs = {}
+        scanixs['f'] = ixs[slcs.scandirs==1]
+        scanixs['b'] = ixs[slcs.scandirs==-1]
+        bpars_init = []
+        bfixed = []
+        blabels = []
+        bixs = {}
+        c = 0 # counter
+        for k in self.scankeys[dataset]:
+            idkey = '{0}{1}'.format( dataset, k )
+            ixsk = self.data_ixs[dataset][k]
+            thrsk = self.data[:,1][ixsk][scanixs[k]]
+            fluxk = self.data[:,3][ixsk][scanixs[k]]
+            orbixs = UR.SplitHSTOrbixs( thrsk )
+            t1 = np.median( thrsk[0] )
+            t2 = np.median( thrsk[-1] )
+            f1 = np.median( fluxk[0] )
+            f2 = np.median( fluxk[-1] )
+            grad = ( f2-f1 )/( t2-t1 )
+            offs = f1-grad*t1
+            if self.ttrend=='linear':
+                binitk = [ offs, grad ]
+            elif self.ttrend=='quadratic':
+                binitk = [ offs, grad, 0 ]
+            else:
+                pdb.set_trace()
+            bpars_init = np.concatenate( [ bpars_init, binitk ] )
+            bfixed = np.concatenate( [ bfixed, bfixed0 ] )
+            blabels_k = []
+            for j in range( nbpar ):
+                blabels_k += [ '{0}_{1}'.format( blabels0[j], idkey ) ]
+            blabels += [ np.array( blabels_k, dtype=str ) ]
+            bixs[idkey] = np.arange( c, c+nbpar )
+            c += nbpar
+        blabels = np.concatenate( blabels )
+        b = { 'blabels':blabels, 'bfixed':bfixed, 'bpars_init':bpars_init, 'bixs':bixs }
+        return b
+
     def InitialPPars( self, transittype ):
-        return None
+        """
+        Returns clean starting arrays for planet parameter arrays.
+        """
+        #dsets = list( self.wlcs.keys() )
+        config = self.slcs[self.dsets[0]].config
+        ldpars = self.ldpars[config]
+        pinit0 = []
+        if transittype=='primary':
+            s = 3
+            if self.ld.find( 'quad' )>=0:
+                plabels = [ 'RpRs', 'gam1', 'gam2' ]
+                try:
+                    pinit0 += [ self.ppar_init['RpRs'] ]                        
+                except:
+                    pinit0 += [ self.syspars['RpRs'][0] ]
+                pinit0 += [ ldpars[0], ldpars[1] ]
+                pinit0 = np.array( pinit0 )
+                if self.ld.find( 'fixed' )>=0:
+                    pfixed = np.array( [ 0, 1, 1 ] )
+                if self.ld.find( 'free' )>=0:
+                    pfixed = np.array( [ 0, 0, 0 ] )
+            elif self.ld.find( 'nonlin' )>=0:
+                pdb.set_trace() # TODO - implement 4-parameter LD
+        elif transittype=='secondary':
+            plabels = [ 'EcDepth' ]
+            try:
+                pinit0 += [ self.ppar_init['EcDepth'] ]
+            except:
+                pinit0 += [ self.syspars['EcDepth'][0] ]
+            pinit0 = np.array( pinit0 )
+            pfixed = np.array( [ 0 ] )
+        return plabels, pinit0, pfixed
+    
     def PreFitting( self, niter=2, sigcut=10 ):
         return None
     def CalcModel( self ):
@@ -930,22 +1081,27 @@ class WFC3SpecFitLM():
         return None
     
 
-    def GetBatmanObject( self, jd, config ):
-        # TODO = Install WMLE values in here.....?
+    def GetBatmanObject( self, dset, jd, config ):
         # Define the batman planet object:
         batpar = batman.TransitParams()
-        batpar.t0 = self.syspars['T0'][0]
         batpar.per = self.syspars['P'][0]
-        batpar.rp = self.syspars['RpRs'][0]
-        batpar.a = self.syspars['aRs'][0]
-        batpar.inc = self.syspars['incl'][0]
         batpar.ecc = self.syspars['ecc'][0]
         batpar.w = self.syspars['omega'][0]
         batpar.limb_dark = self.ldbat
         batpar.u = self.ldpars[config][self.chix,:]
+        batpar.a = self.orbpars['aRs']
+        batpar.inc = self.orbpars['incl']
+        self.ppar_init = {}
+        if self.syspars['tr_type']=='primary':
+            batpar.rp = self.wmles[dset]['RpRs']
+            batpar.t0 = self.Tmids[dset]
+            self.ppar_init['RpRs'] = batpar.rp
         if self.syspars['tr_type']=='secondary':
-            batpar.fp = self.syspars['EcDepth']
-            batpar.t_secondary = self.syspars['Tmid'][0]
+            batpar.rp = self.syspars['RpRs'][0]
+            batpar.fp = self.mles[dset]['EcDepth']
+            batpar.t0 = self.syspars['T0'][0]
+            batpar.t_secondary = self.Tmids[dset]
+            self.ppar_init['EcDepth'] = batpar.rp
         pmodel = batman.TransitModel( batpar, jd, transittype=self.syspars['tr_type'] )
         # Following taken from here:
         # https://www.cfa.harvard.edu/~lkreidberg/batman/trouble.html#help-batman-is-running-really-slowly-why-is-this
@@ -1718,17 +1874,21 @@ class WFC3WhiteFitLM():
         if ( self.syspars['tr_type']=='primary' ):
             ix_aRs = self.par_labels=='aRs'
             ix_b = self.par_labels=='b'
-            outp['orbpars']['aRs'] = float( self.pars_fit['pvals'][ix_aRs] )
-            outp['orbpars']['b'] = float( self.pars_fit['pvals'][ix_b] )
+            aRs = float( self.pars_fit['pvals'][ix_aRs] )
+            b = float( self.pars_fit['pvals'][ix_b] )
         else:
-            outp['orbpars']['aRs'] = float( self.syspars['aRs'] )
-            outp['orbpars']['b'] = float( self.syspars['b'] )
+            aRs = float( self.syspars['aRs'] )
+            b = float( self.syspars['b'] )
+        outp['orbpars']['aRs'] = aRs
+        outp['orbpars']['b'] = b
+        outp['orbpars']['incl'] = np.rad2deg( np.arccos( aRs/b ) )
         outp['Tmids'] = self.Tmids
         outp['Tmid0'] = self.Tmid0
         opath_pkl = self.GetFilePath()
         ofile = open( opath_pkl, 'wb' )
         pickle.dump( outp, ofile )
         ofile.close()
+        pdb.set_trace()
         opath_txt = opath_pkl.replace( '.pkl', '.txt' )
         self.whitefit_fpath_pkl = opath_pkl
         self.whitefit_fpath_txt = opath_txt

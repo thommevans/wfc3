@@ -855,6 +855,10 @@ class WFC3SpecFitLM():
             self.keepixs[dset] = []
             nf = 500
             for k in self.scankeys[dset]:
+                if scanixs[k].size==0:
+                    print( '\nNo {0}-scan in {1} dataset. Remove from scankeys.\n'\
+                           .format( k, dset ) )
+                    pdb.set_trace()
                 jdi = slcs.jd[scanixs[k]]
                 jdf = np.linspace( jdi.min(), jdi.max(), nf )
                 thrsi = 24*( jdi-slcs.jd[0] ) # time since start of visit in hours
@@ -1529,6 +1533,10 @@ class WFC3WhiteFitLM():
             self.keepixs[dset] = []
             nf = 500
             for k in self.scankeys[dset]:
+                if scanixs[k].size==0:
+                    print( '\nNo {0}-scan in {1} dataset. Remove from scankeys.\n'\
+                           .format( k, dset ) )
+                    pdb.set_trace()
                 jdi = wlc.jd[scanixs[k]]
                 jdf = np.linspace( jdi.min(), jdi.max(), nf )
                 thrsi = 24*( jdi-wlc.jd[0] ) # time since start of visit in hours
@@ -4915,6 +4923,11 @@ class Bandpass():
 
     def __init__( self ):
         self.config = ''
+        self.fpath = ''
+        self.dispersion_nmppix = None
+        self.dispersion_micrppix = None
+        self.bandpass_wavmicr = None
+        self.bandpass_thput = None
 
     def Read( self ):
         nm2micr = 1e-3
@@ -5066,6 +5079,7 @@ class LimbDarkening():
                                passband_sensitivity=self.bandpass_thput, \
                                cuton_wav_nm=cutonnm, cutoff_wav_nm=cutoffnm )
         # TODO = add 3D STAGGER
+        self.lin = ldcoeffs['linear']
         self.quad = ldcoeffs['quadratic']
         self.nonlin = ldcoeffs['fourparam_nonlin']
         return None

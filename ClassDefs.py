@@ -1443,9 +1443,10 @@ class WFC3SpecFitLM():
             print( i+1, ntrials )
             for j in range( npar ):
                 if self.fixed[j]==0:
-                    v = self.pars_init[j]
-                    dv = 0.05*np.random.randn()*np.abs( v )
-                    self.pars_init[j] = v + dv
+                    if i>0: # Note: first trial is unperturbed
+                        v = self.pars_init[j]
+                        dv = 0.05*np.random.randn()*np.abs( v )
+                        self.pars_init[j] = v + dv
             self.FitModel( save_to_file=False, verbose=False )
             chi2[i] = self.CalcChi2()
             trials += [ self.pars_fit['pvals'] ]
@@ -1935,17 +1936,18 @@ class WFC3WhiteFitLM():
             print( i+1, ntrials )
             for j in range( npar ):
                 if self.fixed[j]==0:
-                    v = self.pars_init[j]
-                    # Perturbations for planet parameters excluding delT:
-                    if j<self.nppar-ndsets: 
-                        dv = (1e-2)*np.random.randn()*np.abs( v )
-                    elif j<self.nppar: # smaller perturbations for delT
-                        dv = (1e-4)*np.random.randn()*np.abs( v )
-                    elif j<npar-self.nbpar: # small perturbations for ramp parameters
-                        dv = (1e-4)*np.random.randn()*np.abs( v )
-                    else: # no perturbation for baseline parameters
-                        dv = 0 
-                    self.pars_init[j] = v + dv
+                    if i>0: # Note: first trial is unperturbed
+                        v = self.pars_init[j]
+                        # Perturbations for planet parameters excluding delT:
+                        if j<self.nppar-ndsets: 
+                            dv = (1e-2)*np.random.randn()*np.abs( v )
+                        elif j<self.nppar: # smaller perturbations for delT
+                            dv = (1e-4)*np.random.randn()*np.abs( v )
+                        elif j<npar-self.nbpar: # small perturbations for ramp parameters
+                            dv = (1e-4)*np.random.randn()*np.abs( v )
+                        else: # no perturbation for baseline parameters
+                            dv = 0 
+                        self.pars_init[j] = v + dv
             self.FitModel( save_to_file=False, verbose=False )
             chi2[i] = self.CalcChi2()
             trials += [ self.pars_fit['pvals'] ]

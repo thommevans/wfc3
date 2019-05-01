@@ -1,13 +1,13 @@
 import pdb, sys, os, glob, pickle, time, re
 import numpy as np
 import scipy.ndimage
-#import batman
 from bayes.pyhm_dev import pyhm
 import numexpr
 
 
+
 def rvFunc( t, a1, a2 ):
-    return 1 + a1*np.exp( -t/a2 )
+    return 1 + a1*np.exp( -a2*t )
 
 def r0Func( torb, rvt, a3, a4, a5 ):
     return 1 + a3*np.exp( -( torb-a5 )/(a4*rvt) )
@@ -27,9 +27,6 @@ def DERampLinBase( t, torb, pars ):
     rvt = rvFunc( t, a1, a2 )
     r0t = r0Func( torb, rvt, a3, a4, a5 )
     ttr = b0 + b1*t # linear-time baseline trend
-    #print( '\nPar values are:' )
-    #print( pars )
-    #print( '' )    
     return ttr, rvt*r0t
 
 

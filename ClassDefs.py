@@ -5,12 +5,10 @@ import scipy.ndimage, scipy.interpolate
 import astropy.io.fits as pyfits
 import matplotlib
 import matplotlib.pyplot as plt
-#import utils
 import batman
 from limbdark_dev import ld
 from bayes.pyhm_dev import pyhm
 from bayes.gps_dev.gps import gp_class, kernels
-#import shared
 from . import UtilityRoutines as UR
 from . import Systematics
 from .mpfit import mpfit
@@ -1670,6 +1668,8 @@ class WFC3WhiteFitLM():
         blabels = np.array( blabels ).flatten()
         p = { 'labels':plabels, 'fixed':pfixed, 'pars_init':pinit, 'ixs':pixs }
         b = { 'labels':blabels, 'fixed':bfixed, 'pars_init':binit, 'ixs':bixs }
+        self.nppar = len( plabels )
+        self.nbpar = len( blabels )
         return p, b
 
     def InitialBPars( self ):
@@ -1832,7 +1832,8 @@ class WFC3WhiteFitLM():
         ixsd = self.data_ixs
         # For each scan direction, the systematics model consists of a
         # double-exponential ramp (a1,a2,a3,a4,a5):
-        rlabels0 = [ 'a1', 'a2', 'a3', 'a4', 'a5' ]
+        #rlabels0 = [ 'a1', 'a2', 'a3', 'a4', 'a5' ]
+        rlabels0 = [ 'a0', 'a1', 'a2', 'a3', 'a4', 'a5' ] #DELETE
         # Initial values for systematics parameters:
         rlabels = []
         rfixed = []
@@ -1892,12 +1893,23 @@ class WFC3WhiteFitLM():
         pfit = []
         for i in range( ntrials ):
             print( i )
-            b0 = flux[-1]
-            b1 = 0
+            b0i = flux[-1]
+            b1i = 0
             # These starting values seem to produce reasonable results:
-            pinit = [ 0, 0.1+0.005*np.random.random(), \
-                      (1e-3)*np.random.randn(), 0.005+0.005*np.random.random(), \
-                      ( 0.05+0.001*np.random.random() )/60., b0, b1 ]
+            #pinit = [ 0, (1e-3)*np.random.randn(), 0.1+0.005*np.random.random(), \
+            #          (1e-3)*np.random.randn(), 0.005+0.005*np.random.random(), \
+            #          ( 0.05+0.001*np.random.random() )/60., b0i, b1i ]
+            #a1i = -10#0.001
+            a1i = 1e-4
+            a2i = 1
+            a3i = -0.01#-0.001
+            a4i = 0.01
+            a5i = 0.001
+            bb = 0.01
+            pinit = [ a1i*( 1+bb*np.random.randn() ), \
+                      a2i*( 1+bb*np.random.randn() ), a3i*( 1+bb*np.random.randn() ), \
+                      a4i*( 1+bb*np.random.randn() ), a5i*( 1+bb*np.random.randn() ), \
+                      b0i, b1i ]
             if self.ttrend=='quadratic': pinit += [ 0 ]
             pfiti = scipy.optimize.fmin( CalcRMS, pinit, maxiter=1e5, xtol=1e-5, ftol=1e-5 )
             rms[i] = CalcRMS( pfiti )
@@ -1914,6 +1926,7 @@ class WFC3WhiteFitLM():
         """
         Fit the light curve model using multiple randomized starting parameter values.
         """
+        ndsets = len( self.dsets )
         npar = len( self.pars_init )
         chi2 = np.zeros( ntrials )
         trials = []
@@ -1923,7 +1936,15 @@ class WFC3WhiteFitLM():
             for j in range( npar ):
                 if self.fixed[j]==0:
                     v = self.pars_init[j]
-                    dv = 0.05*np.random.randn()*np.abs( v )
+                    # Perturbations for planet parameters excluding delT:
+                    if j<self.nppar-ndsets: 
+                        dv = (1e-2)*np.random.randn()*np.abs( v )
+                    elif j<self.nppar: # smaller perturbations for delT
+                        dv = (1e-4)*np.random.randn()*np.abs( v )
+                    elif j<npar-self.nbpar: # small perturbations for ramp parameters
+                        dv = (1e-4)*np.random.randn()*np.abs( v )
+                    else: # no perturbation for baseline parameters
+                        dv = 0 
                     self.pars_init[j] = v + dv
             self.FitModel( save_to_file=False, verbose=False )
             chi2[i] = self.CalcChi2()
@@ -1983,6 +2004,10 @@ class WFC3WhiteFitLM():
                     ixsd[dset][k] = ixsdk[ixs]
                     ixsmz += [ ixsmzk[ixs] ] #testing
                     ndat += len( residsk )
+                if ncull>0.1*ndat:
+                    print( '\nOver 10% of data flagged as outliers - something probably wrong' )
+                    print( 'Try repeating the fitting to initialize different start values\n' )
+                    pdb.set_trace()
                 ixsmz = np.concatenate( ixsmz ) #testing
                 ixs0 = np.argsort( ixsmz ) #testing
                 ixsm[dset] = ixsmz[ixs0] #testing
@@ -2062,6 +2087,11 @@ class WFC3WhiteFitLM():
             fullmodel = m['psignal']*m['ttrend']*m['ramp']
             resids = data[:,3]-fullmodel
             status = 0
+            #plt.ion() # delete
+            #plt.figure()
+            #plt.plot( data[:,0], data[:,3], 'ok' )
+            #plt.plot( data[:,0], fullmodel, '-r' )
+            #pdb.set_trace()
             return resids/data[:,4]
         self.npar = len( self.par_labels )
         parinfo = []

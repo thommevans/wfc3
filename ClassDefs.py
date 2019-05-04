@@ -1377,6 +1377,7 @@ class WFC3SpecFitLM():
         outp['uncertainties_rescale'] = self.uncertainties_rescale
         outp['par_labels'] = self.par_labels
         outp['pars_fit'] = self.pars_fit
+        outp['wavedgesmicr'] = self.wavedgesmicr
         outp['mle'] = {}
         for i in range( self.npar ):
             outp['mle'][self.par_labels[i]] = self.pars_fit['pvals'][i]
@@ -1430,6 +1431,7 @@ class WFC3SpecFitLM():
         if verbose==True:
             print( ostr )
         return None
+
     
     def RunTrials( self, ntrials ):
         """
@@ -1578,7 +1580,6 @@ class WFC3WhiteFitLM():
         each individual dataset onto the joint parameter list that gets
         passed to mpfit.
         """
-        #dsets = list( self.wlcs.keys() )
         ndsets = len( self.dsets )
         # Determine preliminary values for ramp parameters:
         r, fluxc = self.PrepRampPars()
@@ -1616,6 +1617,10 @@ class WFC3WhiteFitLM():
                 sixsij = nppar_total + s['ixs'][idkey]
                 ixs[idkey] = np.concatenate( [ p['ixs'][dset], sixsij ] )
         self.par_ixs = ixs
+        self.npar = len( self.par_labels )
+        print( '\nInitial parameter values:' )
+        for i in range( self.npar ):
+            print( '  {0} = {1}'.format( self.par_labels[i], self.pars_init[i] ) )
         return None
 
 
@@ -1671,6 +1676,7 @@ class WFC3WhiteFitLM():
         b = { 'labels':blabels, 'fixed':bfixed, 'pars_init':binit, 'ixs':bixs }
         self.nppar = len( plabels )
         self.nbpar = len( blabels )
+        #pdb.set_trace()
         return p, b
 
     def InitialBPars( self ):
@@ -1833,8 +1839,8 @@ class WFC3WhiteFitLM():
         ixsd = self.data_ixs
         # For each scan direction, the systematics model consists of a
         # double-exponential ramp (a1,a2,a3,a4,a5):
-        #rlabels0 = [ 'a1', 'a2', 'a3', 'a4', 'a5' ]
-        rlabels0 = [ 'a0', 'a1', 'a2', 'a3', 'a4', 'a5' ] #DELETE
+        rlabels0 = [ 'a1', 'a2', 'a3', 'a4', 'a5' ]
+        #rlabels0 = [ 'a0', 'a1', 'a2', 'a3', 'a4', 'a5' ] #DELETE
         # Initial values for systematics parameters:
         rlabels = []
         rfixed = []
@@ -1866,6 +1872,8 @@ class WFC3WhiteFitLM():
                 c += 1
         rlabels = np.concatenate( rlabels )
         r = { 'labels':rlabels, 'fixed':rfixed, 'pars_init':rinit, 'ixs':rixs }
+        #print( rinit )
+        #pdb.set_trace()
         return r, fluxc
 
     
@@ -1895,24 +1903,23 @@ class WFC3WhiteFitLM():
         for i in range( ntrials ):
             print( i )
             b0i = flux[-1]
+            #b0i = np.median( flux )
             b1i = 0
             # These starting values seem to produce reasonable results:
-            #pinit = [ 0, (1e-3)*np.random.randn(), 0.1+0.005*np.random.random(), \
-            #          (1e-3)*np.random.randn(), 0.005+0.005*np.random.random(), \
-            #          ( 0.05+0.001*np.random.random() )/60., b0i, b1i ]
-            #a1i = -10#0.001
-            a1i = 1e-4
+            a1b = 1e-3
             a2i = 1
-            a3i = -0.01#-0.001
+            a3b = 1e-3
             a4i = 0.01
             a5i = 0.001
-            bb = 0.01
-            pinit = [ a1i*( 1+bb*np.random.randn() ), \
-                      a2i*( 1+bb*np.random.randn() ), a3i*( 1+bb*np.random.randn() ), \
-                      a4i*( 1+bb*np.random.randn() ), a5i*( 1+bb*np.random.randn() ), \
-                      b0i, b1i ]
+            bb = 0.1
+            pinit = [ a1b*np.random.randn(), a2i*( 1+bb*np.random.randn() ), \
+                      a3b*np.random.randn(), a4i*( 1+bb*np.random.randn() ), \
+                      a5i*( 1+bb*np.random.randn() ), b0i, b1i ]
+            #pinit = [ (1e-3)*np.random.randn(), 0.1+0.005*np.random.random(), \
+            #          (1e-3)*np.random.randn(), 0.1+0.005*np.random.random(), \
+            #          (1.+0.005*np.random.random() )/60., flux[-1], 0 ]
             if self.ttrend=='quadratic': pinit += [ 0 ]
-            pfiti = scipy.optimize.fmin( CalcRMS, pinit, maxiter=1e5, xtol=1e-5, ftol=1e-5 )
+            pfiti = scipy.optimize.fmin( CalcRMS, pinit, maxiter=1e4, xtol=1e-3, ftol=1e-4 )
             rms[i] = CalcRMS( pfiti )
             pfit += [ pfiti ]
         pbest = pfit[np.argmin(rms)]            
@@ -1928,22 +1935,21 @@ class WFC3WhiteFitLM():
         Fit the light curve model using multiple randomized starting parameter values.
         """
         ndsets = len( self.dsets )
-        npar = len( self.pars_init )
         chi2 = np.zeros( ntrials )
         trials = []
         print( '\nTrials with randomly perturbed starting positions:' )
         for i in range( ntrials ):
             print( i+1, ntrials )
-            for j in range( npar ):
-                if self.fixed[j]==0:
-                    if i>0: # Note: first trial is unperturbed
+            for j in range( self.npar ):
+                if i>0: # Note: first trial is unperturbed
+                    if self.fixed[j]==0:
                         v = self.pars_init[j]
                         # Perturbations for planet parameters excluding delT:
                         if j<self.nppar-ndsets: 
                             dv = (1e-2)*np.random.randn()*np.abs( v )
                         elif j<self.nppar: # smaller perturbations for delT
                             dv = (1e-4)*np.random.randn()*np.abs( v )
-                        elif j<npar-self.nbpar: # small perturbations for ramp parameters
+                        elif j<self.npar-self.nbpar: # small perturbations for ramp parameters
                             dv = (1e-4)*np.random.randn()*np.abs( v )
                         else: # no perturbation for baseline parameters
                             dv = 0 
@@ -1965,56 +1971,67 @@ class WFC3WhiteFitLM():
         done to get more realistic uncertainties for the model parameters
         in the final model fit, which is performed outside this routine.
         """
-        ixsd = self.data_ixs
-        ixsm = self.keepixs
-        ixsp = self.par_ixs
-        batp = self.batpars
-        #pdb.set_trace()
-        syspars = self.syspars
-        data = self.data
-        npar = len( self.pars_init )
-        print( '\nRunning initial fit for full model:' )
-        self.pars_init = self.RunTrials( 5 )
-        print( 'Done.\n' )
-        ncull = 0
-        ndat = 0
-        #dsets = list( self.wlcs.keys() )
         print( '\nIterating over multiple trials to flag outliers:' )
+        syspars = self.syspars
         tt = syspars['tr_type']
-        for g in range( niter ):
-            pars_fit = self.RunTrials( self.ntrials )
-            mfit = self.CalcModel( pars_fit )
-            ffit = mfit['psignal']*mfit['ttrend']*mfit['ramp']
-            ixsmg = {}
-            for dset in self.dsets:
-                scandirs = self.wlcs[dset].scandirs[ixsm[dset]]
-                ixsmg['f'] = ixsm[dset][scandirs==1] #testing
-                ixsmg['b'] = ixsm[dset][scandirs==-1] #testing
-                ixsmz = [] #testing
-                for k in self.scankeys[dset]:
-                    ixsdk = ixsd[dset][k]
-                    ixsmzk = ixsmg[k] #testing
-                    idkey = '{0}{1}'.format( dset, k )
-                    residsk = self.data[ixsdk,3]-ffit[ixsdk]
-                    uncsk = self.data[ixsdk,4]
-                    nsig = np.abs( residsk )/uncsk                           
-                    ixs = ( nsig<sigcut ) # within threshold
-                    ncull += int( nsig.size-ixs.sum() )
-                    self.pmodels[idkey] = batman.TransitModel( batp[idkey], \
-                                                               data[ixsdk,0][ixs], \
-                                                               transittype=tt )
-                    ixsd[dset][k] = ixsdk[ixs]
-                    ixsmz += [ ixsmzk[ixs] ] #testing
-                    ndat += len( residsk )
-                if ncull>0.1*ndat:
-                    print( '\nOver 10% of data flagged as outliers - something probably wrong' )
-                    print( 'Try repeating the fitting to initialize different start values\n' )
-                    pdb.set_trace()
-                ixsmz = np.concatenate( ixsmz ) #testing
-                ixs0 = np.argsort( ixsmz ) #testing
-                ixsm[dset] = ixsmz[ixs0] #testing
-            print( 'Iteration={0:.0f}, Nculled={1:.0f}'.format( g+1, ncull ) )
-            self.pars_init = pars_fit
+        finished = False
+        nattempts = 0
+        nattempts_max = 5
+        while ( finished==False )*( nattempts<nattempts_max ):
+            ixsd = self.data_ixs.copy()
+            ixsm = self.keepixs.copy()
+            ixsp = self.par_ixs
+            batp = self.batpars
+            #pdb.set_trace()
+            data = self.data
+            ncull = 0
+            ndat = 0
+            print( '\nRunning initial fit for full model:' )
+            self.pars_init = self.RunTrials( 5 )
+            print( 'Done.\n' )
+            for g in range( niter ):
+                pars_fit = self.RunTrials( self.ntrials )
+                mfit = self.CalcModel( pars_fit )
+                ffit = mfit['psignal']*mfit['ttrend']*mfit['ramp']
+                ixsmg = {}
+                for dset in self.dsets:
+                    scandirs = self.wlcs[dset].scandirs[ixsm[dset]]
+                    ixsmg['f'] = ixsm[dset][scandirs==1] #testing
+                    ixsmg['b'] = ixsm[dset][scandirs==-1] #testing
+                    ixsmz = [] #testing
+                    for k in self.scankeys[dset]:
+                        ixsdk = ixsd[dset][k]
+                        ixsmzk = ixsmg[k] #testing
+                        idkey = '{0}{1}'.format( dset, k )
+                        residsk = self.data[ixsdk,3]-ffit[ixsdk]
+                        uncsk = self.data[ixsdk,4]
+                        nsig = np.abs( residsk )/uncsk                           
+                        ixs = ( nsig<sigcut ) # within threshold
+                        ncull += int( nsig.size-ixs.sum() )
+                        self.pmodels[idkey] = batman.TransitModel( batp[idkey], \
+                                                                   data[ixsdk,0][ixs], \
+                                                                   transittype=tt )
+                        ixsd[dset][k] = ixsdk[ixs]
+                        ixsmz += [ ixsmzk[ixs] ] #testing
+                        ndat += len( residsk )
+                    ixsmz = np.concatenate( ixsmz ) #testing
+                    ixs0 = np.argsort( ixsmz ) #testing
+                    ixsm[dset] = ixsmz[ixs0] #testing
+                print( 'Iteration={0:.0f}, Nculled={1:.0f}'.format( g+1, ncull ) )
+                self.pars_init = pars_fit
+            if ncull<0.1*ndat:
+                finished = True
+            else:
+                warnstr = '\n{0:.0f}% of data points culled indicating something'\
+                          .format( 100*float( ncull )/float( ndat ) )
+                warnstr += ' went wrong. Re-attempting...'
+                print( warnstr )
+                nattempts += 1
+        if ( finished==False )*( nattempts>nattempts_max ):
+            print( '\nOver 10% of data flagged as outliers - something probably wrong' )
+            print( 'Re-attempted {0:.0f} times but always had the same problem!\n'\
+                   .format( nattempts_max ) )
+            pdb.set_trace()
         print( '\n{0}\nRescaling measurement uncertainties by:\n'.format( 50*'#' ) )
         rescale = {}
         for dset in self.dsets:
@@ -2025,9 +2042,10 @@ class WFC3WhiteFitLM():
                 #ixsmk = ixsm[dset][k]
                 zk = ( self.data[ixsdk,3]-ffit[ixsdk] )/self.data[ixsdk,4]
                 chi2k = np.sum( zk**2. )
-                rchi2k = chi2k/float( len( residsk )-len( pars_fit[ixsp[idkey]] ) )
+                rchi2k = chi2k/float( zk.size-len( pars_fit[ixsp[idkey]] ) )
                 rescale[dset][k] = np.sqrt( rchi2k )
                 print( '{0:.2f} for {1}{2}'.format( rescale[dset][k], dset, k ) )
+                if np.isfinite( rescale[dset][k] )==False: pdb.set_trace()
         for dset in self.dsets:
             for k in self.scankeys[dset]:
                 self.data[ixsd[dset][k],4] *= rescale[dset][k]
@@ -2089,11 +2107,6 @@ class WFC3WhiteFitLM():
             fullmodel = m['psignal']*m['ttrend']*m['ramp']
             resids = data[:,3]-fullmodel
             status = 0
-            #plt.ion() # delete
-            #plt.figure()
-            #plt.plot( data[:,0], data[:,3], 'ok' )
-            #plt.plot( data[:,0], fullmodel, '-r' )
-            #pdb.set_trace()
             return resids/data[:,4]
         self.npar = len( self.par_labels )
         parinfo = []
@@ -2279,8 +2292,8 @@ class WFC3WhiteFitLM():
                               '-', color=cjoint )
                 if k==self.scankeys[self.dsets[i]][-1]:
                     delTmin = 24*60*( Tmidlit-Tmid )
-                    ax1.axvline( delTmin/60., ls='--', c='r', zorder=0, \
-                                 label='delT={0:.2f}min'.format( delTmin ) )
+                    lstr = 'predicted mid-time (delT={0:.2f}min)'.format( delTmin )
+                    ax1.axvline( delTmin/60., ls='--', c='r', zorder=0, label=lstr )
                     ax1.legend( loc='lower right', bbox_to_anchor=[1,1.005] )
                 ax2.plot( tvk, 100*( flux[ixsik]/sfit[ixsik]-1 ), 'o', mec=mec, mfc=mfc )
                 pmodfk = batman.TransitModel( self.batpars[idkey], jdfk, \
@@ -2303,8 +2316,8 @@ class WFC3WhiteFitLM():
             plt.setp( ax1.xaxis.get_ticklabels(), visible=False )
             plt.setp( ax2.xaxis.get_ticklabels(), visible=False )
             titlestr = '{0}'.format( self.dsets[i] )
-            fig.text( xlow+0.5*axw, ylow1+axh12*1.01, titlestr, rotation=0, fontsize=18, \
-                      verticalalignment='bottom', horizontalalignment='center' )
+            fig.text( xlow+0.05*axw, ylow1+axh12*1.01, titlestr, rotation=0, fontsize=18, \
+                      verticalalignment='bottom', horizontalalignment='left' )
             fig.text( xlow+0.5*axw, 0.005, 'Time from mid-transit (h)', \
                       rotation=0, fontsize=label_fs, \
                       verticalalignment='bottom', horizontalalignment='center' )

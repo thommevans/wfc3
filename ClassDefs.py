@@ -938,7 +938,7 @@ class WFC3SpecFitLM():
         c = 0 # counter
         for k in range( ndsets ):
             pixs[self.dsets[k]] = pixsg
-            bparsk = self.PrelimBpars( self.dsets[k] )
+            bparsk = self.PrelimBPars( self.dsets[k] )
             blabels += [ bparsk['blabels'] ]
             bfixed = np.concatenate( [ bfixed, bparsk['bfixed'] ] )
             binit = np.concatenate( [ binit, bparsk['bpars_init'] ] )
@@ -946,7 +946,8 @@ class WFC3SpecFitLM():
                 bixs[i] = bparsk['bixs'][i]+c
             c += len( bparsk['blabels'] )
         plabels = np.array( plabels )
-        blabels = np.array( blabels ).flatten()
+        #blabels = np.array( blabels ).flatten()
+        blabels = np.concatenate( blabels ).flatten()
         p = { 'labels':plabels, 'fixed':pfixed, 'pars_init':pinit, 'ixs':pixs }
         b = { 'labels':blabels, 'fixed':bfixed, 'pars_init':binit, 'ixs':bixs }
         return p, b
@@ -965,16 +966,16 @@ class WFC3SpecFitLM():
             blabels0 = [ 'b0', 'b1', 'b2' ]
         return blabels0, binit0, bfixed0
     
-    def PrelimBpars( self, dataset ):
+    def PrelimBPars( self, dataset ):
         """
         """
         blabels0, binit0, bfixed0 = self.InitialBPars()
         nbpar = len( binit0 )
         slcs = self.slcs[dataset]
         ixs = np.arange( slcs.jd.size )
-        scanixs = {}
-        scanixs['f'] = ixs[slcs.scandirs==1]
-        scanixs['b'] = ixs[slcs.scandirs==-1]
+        #scanixs = {}
+        #scanixs['f'] = ixs[slcs.scandirs==1]
+        #scanixs['b'] = ixs[slcs.scandirs==-1]
         bpars_init = []
         bfixed = []
         blabels = []
@@ -983,8 +984,8 @@ class WFC3SpecFitLM():
         for k in self.scankeys[dataset]:
             idkey = '{0}{1}'.format( dataset, k )
             ixsk = self.data_ixs[dataset][k]
-            thrsk = self.data[:,1][ixsk][scanixs[k]]
-            fluxk = self.data[:,3][ixsk][scanixs[k]]
+            thrsk = self.data[:,1][ixsk]#[scanixs[k]]
+            fluxk = self.data[:,3][ixsk]#[scanixs[k]]
             orbixs = UR.SplitHSTOrbixs( thrsk )
             t1 = np.median( thrsk[0] )
             t2 = np.median( thrsk[-1] )
@@ -1410,7 +1411,8 @@ class WFC3SpecFitLM():
             fullmodel = m['psignal']*m['ttrend']
             resids = data[:,3]-fullmodel
             status = 0
-            return resids/data[:,4]
+            rms = np.sqrt( np.mean( resids**2. ) )
+            return [ status, resids/data[:,4] ]
         self.npar = len( self.par_labels )
         parinfo = []
         for i in range( self.npar ):
@@ -2126,7 +2128,7 @@ class WFC3WhiteFitLM():
             fullmodel = m['psignal']*m['ttrend']*m['ramp']
             resids = data[:,3]-fullmodel
             status = 0
-            return resids/data[:,4]
+            return [ status, resids/data[:,4] ]
         self.npar = len( self.par_labels )
         parinfo = []
         for i in range( self.npar ):
@@ -2533,7 +2535,11 @@ class WFC3WhiteFitLM():
         batpar.per = self.syspars['P'][0]
         batpar.rp = self.syspars['RpRs'][0]
         batpar.a = self.syspars['aRs'][0]
-        batpar.inc = self.syspars['incl'][0]
+        try: # See if inclination has been provided directly
+            batpar.inc = self.syspars['incl'][0]
+        except: # otherwise, derive from impact parameter:
+            b = self.syspars['b'][0]
+            batpar.inc = np.rad2deg( np.arccos( b/batpar.a ) )
         batpar.ecc = self.syspars['ecc'][0]
         batpar.w = self.syspars['omega'][0]
         batpar.limb_dark = self.ldbat
@@ -2708,7 +2714,11 @@ class WFC3WhiteFitGP():
         batpar.per = self.syspars['P'][0]
         batpar.rp = self.syspars['RpRs'][0]
         batpar.a = self.syspars['aRs'][0]
-        batpar.inc = self.syspars['incl'][0]
+        try: # See if inclination has been provided directly
+            batpar.inc = self.syspars['incl'][0]
+        except: # otherwise, derive from impact parameter:
+            b = self.syspars['b'][0]
+            batpar.inc = np.rad2deg( np.arccos( b/batpar.a ) )
         batpar.ecc = self.syspars['ecc'][0]
         batpar.w = self.syspars['omega'][0]
         batpar.limb_dark = self.ldbat

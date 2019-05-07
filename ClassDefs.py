@@ -1723,7 +1723,25 @@ class WFC3WhiteFitLM():
                     else:
                         pfixed = np.array( [ 0, 1, 1, 0, 0 ] )
             elif self.ld.find( 'nonlin' )>=0:
-                pdb.set_trace() # TODO - implement 4-parameter LD
+                plabels = [ 'RpRs', 'aRs', 'b', 'c1', 'c2', 'c3', 'c4' ]
+                for l in [ 'RpRs', 'aRs', 'b' ]:
+                    try:
+                        pinit0 += [ self.ppar_init[l] ]
+                    except:
+                        pinit0 += [ self.syspars[l] ]
+                #pinit0 += [ ldpars[0], ldpars[1] ]
+                pinit0 += [ ldpars[0], ldpars[1], ldpars[2], ldpars[3] ]
+                pinit0 = np.array( pinit0 )
+                if self.ld.find( 'fixed' )>=0:
+                    if self.orbpars.find( 'free' )>=0:
+                        pfixed = np.array( [ 0, 0, 0, 1, 1, 1, 1 ] )
+                    else:
+                        pfixed = np.array( [ 0, 1, 1, 1, 1, 1, 1 ] )
+                if self.ld.find( 'free' )>=0:
+                    if self.orbpars.find( 'free' )>=0:
+                        pfixed = np.array( [ 0, 0, 0, 0, 0, 0, 0 ] )
+                    else:
+                        pfixed = np.array( [ 0, 1, 1, 0, 0, 0, 0 ] )
         elif transittype=='secondary':
             plabels = [ 'EcDepth', 'aRs', 'b' ]
             for l in [ 'EcDepth', 'aRs', 'b' ]:
@@ -1751,7 +1769,8 @@ class WFC3WhiteFitLM():
                 RpRs, aRs, b, gam1, gam2, delT = pinit
                 pinit = [ RpRs, delT ]
             elif self.ld.find( 'nonlin' )>=0:
-                pdb.set_trace() # TODO
+                RpRs, aRs, b, c1, c2, c3, c4, delT = pinit
+                pinit = [ RpRs, delT ]
         elif transittype=='secondary':
                 EcDepth, aRs, b, delT = pinit
                 pinit = [ EcDepth, delT ]

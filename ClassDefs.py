@@ -648,7 +648,6 @@ class WFC3SpecFit():
         outp['syspars'] = self.syspars
         ofile = open( self.specfit_mle_fpath_pkl, 'wb' )
         pickle.dump( outp, ofile )
-        ofile.close()
         # Add in the bulky MCMC output:
         outp['chain'] = self.chain
         outp['walker_chains'] = self.walker_chains
@@ -1257,6 +1256,7 @@ class WFC3SpecFitLM():
     
     def BestFitsOut( self ):
         jd = self.data[:,0]
+        thrs = self.data[:,1]
         self.bestfits = {}
         nf = 500
         for dset in list( self.data_ixs.keys() ):
@@ -1271,12 +1271,21 @@ class WFC3SpecFitLM():
                 pmodfk = batman.TransitModel( self.batpars[idkey], jdfdk, \
                                               transittype=self.syspars['tr_type'] )
                 pfitfdk = pmodfk.light_curve( self.batpars[idkey] )
+                # Evaluate ttrend - would be better to have a more elegant way of doing this:
+                thrsdk = thrs[ixsdk]
+                thrsfdk = np.linspace( thrsdk.min(), thrsdk.max(), nf )
+                pfit = self.pars_fit['pvals'][self.par_ixs[idkey]]
+                if self.ttrend=='linear':
+                    ttrendfdk = pfit[-2]+pfit[-1]*thrsfdk
+                elif self.ttrend=='quadratic':
+                    ttrendfdk = pfit[-3]+pfit[-2]*thrsfdk+( pfit[-1]*( thrsfdk**2. ) )
                 self.bestfits[dset][k] = {}
                 self.bestfits[dset][k]['jd'] = jddk
                 self.bestfits[dset][k]['psignal'] = pfitdk
                 self.bestfits[dset][k]['ttrend'] = tfitdk
                 self.bestfits[dset][k]['jdf'] = jdfdk
                 self.bestfits[dset][k]['psignalf'] = pfitfdk
+                self.bestfits[dset][k]['ttrendf'] = ttrendfdk
         return None
     
     def TxtOut( self, save_to_file=True ):

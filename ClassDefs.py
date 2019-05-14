@@ -2064,8 +2064,10 @@ class WFC3WhiteFitLM():
             pdb.set_trace()
         print( '\n{0}\nRescaling measurement uncertainties by:\n'.format( 50*'#' ) )
         rescale = {}
+        self.sigw = {}
         for dset in self.dsets:
             rescale[dset] = {}
+            self.sigw[dset] = {}
             for k in self.scankeys[dset]:
                 idkey = '{0}{1}'.format( dset, k )
                 ixsdk = ixsd[dset][k]
@@ -2074,6 +2076,7 @@ class WFC3WhiteFitLM():
                 chi2k = np.sum( zk**2. )
                 rchi2k = chi2k/float( zk.size-len( pars_fit[ixsp[idkey]] ) )
                 rescale[dset][k] = np.sqrt( rchi2k )
+                self.sigw[dset][k] = np.median( self.data[ixsdk,4] )
                 print( '{0:.2f} for {1}{2}'.format( rescale[dset][k], dset, k ) )
                 if np.isfinite( rescale[dset][k] )==False: pdb.set_trace()
         for dset in self.dsets:
@@ -2274,6 +2277,7 @@ class WFC3WhiteFitLM():
         resids = flux-ffit
         cjoint = 'Cyan'#0.8*np.ones( 3 )
         label_fs = 12
+        text_fs = 8
         for i in range( nvisits ):
             fig = plt.figure( figsize=[6,9] )
             xlow = 0.15
@@ -2293,7 +2297,8 @@ class WFC3WhiteFitLM():
             psignalf = []
             print( '\n\nResidual scatter:' )
             Tmidlit = self.Tmid0[self.dsets[i]]
-            for k in self.scankeys[self.dsets[i]]:#range( nscans ):
+            for s in range( len( self.scankeys[self.dsets[i]] ) ):
+                k = self.scankeys[self.dsets[i]][s]
                 idkey = '{0}{1}'.format( self.dsets[i], k )
                 ixsik = ixsd[self.dsets[i]][k]
                 if k=='f':
@@ -2339,6 +2344,13 @@ class WFC3WhiteFitLM():
                 print( '  {0} = {1:.0f} ppm ({2:.2f}x photon noise)'\
                        .format( idkey, rms_ppm, \
                                 self.uncertainties_rescale[self.dsets[i]][k] ) )
+                sig0_ppm = (1e6)*self.sigw[self.dsets[i]][k]
+                noisestr = '$\sigma_0$={0:.0f}ppm, rms={1:.0f}ppm'\
+                           .format( sig0_ppm, rms_ppm )
+                fig.text( xlow+0.01*axw, ylow2+( 0.02+0.05*s )*axh12, noisestr, \
+                          fontsize=text_fs, rotation=0, color=mec, \
+                          horizontalalignment='left', verticalalignment='bottom' )
+                          
             tvf = np.concatenate( tvf )
             psignalf = np.concatenate( psignalf )
             ixs = np.argsort( tvf )
@@ -2360,6 +2372,19 @@ class WFC3WhiteFitLM():
             fig.text( 0.01, ylow3+0.5*axh3, 'Residuals (ppm)', \
                       rotation=90, fontsize=label_fs, \
                       verticalalignment='center', horizontalalignment='left' )
+            if self.syspars['tr_type']=='primary':
+                fitstr = '$R_p/R_\star = {0:.5f} \pm {1:.5f}$'\
+                         .format( self.pars_fit['pvals'][0], self.pars_fit['puncs'][0] )
+            elif self.syspars['tr_type']=='secondary':
+                fitstr = '$D = {0:.0f} \pm {1:.0f}$ ppm'\
+                         .format( (1e6)*self.pars_fit['pvals'][0], \
+                                  (1e6)*self.pars_fit['uncs'] )
+            else:
+                pdb.set_trace()
+            fig.text( xlow+0.99*axw, ylow2+0.02*axh12, fitstr, \
+                      fontsize=text_fs, rotation=0, color='Black', \
+                      horizontalalignment='right', verticalalignment='bottom' )
+            
             #fig.suptitle( ofigpath, fontsize=16 )
             opath = self.whitefit_fpath_pkl\
                     .replace( '.pkl', '.{0}.pdf'.format( self.dsets[i] ) )

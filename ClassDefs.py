@@ -1495,6 +1495,7 @@ class WFC3WhiteFitLM():
         self.orbpars = ''
         self.beta_free = True
         self.Tmid0 = {}
+        self.Tmid_free = True
         self.ntrials = 10
         #self.batpar = {} # maybe have a dict of these for each dset
         #self.pmodel = {}
@@ -1664,14 +1665,17 @@ class WFC3WhiteFitLM():
             try:
                 delTk = self.ppar_init['delT_{0}'.format( self.dsets[k] )]
             except:
-                delTk = 0
+                delTk = 0            
+            if self.Tmid_free==True:
+                pfixed = np.concatenate( [ pfixed, [0] ] ) # delT free for each visit
+            else:
+                pfixed = np.concatenate( [ pfixed, [1] ] ) # delT fixed to zero
             pinitk = np.concatenate( [ pinit0, [delTk] ] )
             # Get initial values for delT and baseline parameters:
             delTk, bparsk = self.PrelimPFit( fluxc, pinitk, transittype, self.dsets[k] )
             # Add a delT parameter for each dataset:
             pinit = np.concatenate( [ pinit, [ delTk ] ] ) 
             pixs[self.dsets[k]] = np.concatenate( [ pixsg, [ ng+k ] ] )
-            pfixed = np.concatenate( [ pfixed, [0] ] ) # delT free for each visit
             delTlab = 'delT_{0}'.format( self.dsets[k] )
             plabels += [ delTlab ]
             blabels += [ bparsk['blabels'] ]
@@ -1786,7 +1790,6 @@ class WFC3WhiteFitLM():
                 EcDepth, aRs, b, delT = pinit
                 pinit = [ EcDepth, delT ]
         blabels0, binit0, bfixed0 = self.InitialBPars()
-        nppar = len( pinit )
         nbpar = len( binit0 )        
         # Sort out the baseline indices for each scan direction
         # and normalize the data using the preliminary ramp fit:
@@ -1803,9 +1806,16 @@ class WFC3WhiteFitLM():
             binit += binit0
             bixs[idkey] = np.arange( c, c+nbpar )
             c += nbpar
-        pfiti = self.OptimizeDelTBaseline( dataset, thrs, fluxn, pinit, \
-                                           binit, bixs, transittype )
-        delT = pfiti[1]
+        if self.Tmid_free==True:
+            nppar = len( pinit )
+            pfiti = self.OptimizeDelTBaseline( dataset, thrs, fluxn, pinit, \
+                                               binit, bixs, transittype )
+            delT = pfiti[1]
+        else:
+            nppar = 1 # because delT excluded
+            pfiti = self.OptimizeBaselineOnly( dataset, thrs, fluxn, pinit, \
+                                               binit, bixs, transittype )
+            
         bpars_init = []
         bfixed = []
         blabels = []
@@ -1841,6 +1851,47 @@ class WFC3WhiteFitLM():
                 elif transittype=='secondary':
                     self.batpars[idkey].fp = p[0]                    
                     self.batpars[idkey].t_secondary = Tmid0 + p[1]
+                psignal[idkey] = self.pmodels[idkey].light_curve( self.batpars[idkey] )
+                bparsk = p[nppar+bixs[idkey]]
+                thrsk = thrs[self.data_ixs[dataset][k]]
+                if self.ttrend=='linear':
+                    baseline[idkey] = bparsk[0] + bparsk[1]*thrsk
+                elif self.ttrend=='quadratic':
+                    baseline[idkey] = bparsk[0] + bparsk[1]*thrsk + bparsk[2]*( thrsk**2. )
+                else:
+                    pdb.set_trace()
+            return psignal, baseline
+        def CalcRMS( pars ):
+            m = CalcModelBasic( pars )
+            resids = []
+            for k in self.scankeys[dataset]:
+                idkey = '{0}{1}'.format( dataset, k )
+                mk = m[0][idkey]*m[1][idkey]
+                resids += [ fluxn[k]-mk ]
+            return np.sqrt( np.mean( np.concatenate( resids )**2. ) )
+        return scipy.optimize.fmin( CalcRMS, pars0 )
+        
+    
+    def OptimizeBaselineOnly( self, dataset, thrs, fluxn, pinit, binit, bixs, transittype ):
+        nppar = 1 # because delT is excluded
+        pars0 = np.concatenate( [ [ pinit[0] ], binit ] ) # exclude delT here
+        Tmid0 = self.Tmid0[dataset]
+        def CalcModelBasic( p ):
+            """
+            Takes the mid-time and either RpRs or EcDepth, along with
+            the baseline parameters, and returns the planet signal
+            and baseline trend as output.
+            """
+            psignal = {}
+            baseline = {}
+            for k in self.scankeys[dataset]:
+                idkey = '{0}{1}'.format( dataset, k )
+                if transittype=='primary':
+                    self.batpars[idkey].rp = p[0]
+                    self.batpars[idkey].t0 = Tmid0 #+ p[1]
+                elif transittype=='secondary':
+                    self.batpars[idkey].fp = p[0]                    
+                    self.batpars[idkey].t_secondary = Tmid0 #+ p[1]
                 psignal[idkey] = self.pmodels[idkey].light_curve( self.batpars[idkey] )
                 bparsk = p[nppar+bixs[idkey]]
                 thrsk = thrs[self.data_ixs[dataset][k]]
@@ -2239,8 +2290,8 @@ class WFC3WhiteFitLM():
             aRs = float( self.pars_fit['pvals'][ix_aRs] )
             b = float( self.pars_fit['pvals'][ix_b] )
         else:
-            aRs = float( self.syspars['aRs'] )
-            b = float( self.syspars['b'] )
+            aRs = float( self.syspars['aRs'][0] )
+            b = float( self.syspars['b'][0] )
         outp['orbpars']['aRs'] = aRs
         outp['orbpars']['b'] = b
         outp['orbpars']['incl'] = np.rad2deg( np.arccos( b/aRs ) )
@@ -2378,7 +2429,7 @@ class WFC3WhiteFitLM():
             elif self.syspars['tr_type']=='secondary':
                 fitstr = '$D = {0:.0f} \pm {1:.0f}$ ppm'\
                          .format( (1e6)*self.pars_fit['pvals'][0], \
-                                  (1e6)*self.pars_fit['uncs'] )
+                                  (1e6)*self.pars_fit['puncs'][0] )
             else:
                 pdb.set_trace()
             fig.text( xlow+0.99*axw, ylow2+0.02*axh12, fitstr, \
@@ -2404,6 +2455,10 @@ class WFC3WhiteFitLM():
         else:
             print( '\n\n\norbpars must be "free" or "fixed"\n\n\n' )
             pdb.set_trace() # haven't implemented other cases yet
+        if self.Tmid_free==True:
+            dirbase = os.path.join( dirbase, 'Tmid_free' )
+        else:
+            dirbase = os.path.join( dirbase, 'Tmid_fixed' )
         if self.syspars['tr_type']=='primary':
             dirbase = os.path.join( dirbase, self.ld )
         else:

@@ -1633,6 +1633,7 @@ class WFC3WhiteFitLM():
         print( '\nInitial parameter values:' )
         for i in range( self.npar ):
             print( '  {0} = {1}'.format( self.par_labels[i], self.pars_init[i] ) )
+        #pdb.set_trace()
         return None
 
 
@@ -1802,7 +1803,8 @@ class WFC3WhiteFitLM():
             idkey = '{0}{1}'.format( dataset, k )
             orbixs = UR.SplitHSTOrbixs( thrs[self.data_ixs[dataset][k]] )
             nmed = min( [ int( len( orbixs[-1] )/2. ), 3 ] )
-            fluxn[k] = fluxc[idkey]/np.median( fluxc[idkey][orbixs[-1]][-nmed:] )
+            fluxn[k] = fluxc[idkey]#/np.median( fluxc[idkey][orbixs[-1]][-nmed:] )
+            binit0[0] = np.median( fluxc[idkey][orbixs[-1]][-nmed:] )
             binit += binit0
             bixs[idkey] = np.arange( c, c+nbpar )
             c += nbpar
@@ -1905,12 +1907,18 @@ class WFC3WhiteFitLM():
         def CalcRMS( pars ):
             m = CalcModelBasic( pars )
             resids = []
+            #plt.ion()
+            #plt.figure()
+            #plt.plot( thrs, fluxn['f'], 'ok' )
+            #plt.plot( thrs, m[0]['G141v2f']*m[1]['G141v2f'], '-r' )
+            #pdb.set_trace()
             for k in self.scankeys[dataset]:
                 idkey = '{0}{1}'.format( dataset, k )
                 mk = m[0][idkey]*m[1][idkey]
                 resids += [ fluxn[k]-mk ]
             return np.sqrt( np.mean( np.concatenate( resids )**2. ) )
-        return scipy.optimize.fmin( CalcRMS, pars0 )
+        pfit = scipy.optimize.fmin( CalcRMS, pars0 )
+        return pfit
         
     
     def PrepRampPars( self ):
@@ -1921,7 +1929,6 @@ class WFC3WhiteFitLM():
         # For each scan direction, the systematics model consists of a
         # double-exponential ramp (a1,a2,a3,a4,a5):
         rlabels0 = [ 'a1', 'a2', 'a3', 'a4', 'a5' ]
-        #rlabels0 = [ 'a0', 'a1', 'a2', 'a3', 'a4', 'a5' ] #DELETE
         # Initial values for systematics parameters:
         rlabels = []
         rfixed = []
@@ -1953,7 +1960,7 @@ class WFC3WhiteFitLM():
                 c += 1
         rlabels = np.concatenate( rlabels )
         r = { 'labels':rlabels, 'fixed':rfixed, 'pars_init':rinit, 'ixs':rixs }
-        #print( rinit )
+        print( 'rinit', rinit )
         #pdb.set_trace()
         return r, fluxc
 
@@ -2007,7 +2014,8 @@ class WFC3WhiteFitLM():
         a1, a2, a3, a4, a5 = pbest[:-nbase]
         rpars = [ a1, a2, a3, a4, a5 ]
         tfit, rfit = rfunc( thrs, torb, pbest )
-        fluxc = flux/( tfit*rfit )
+        #fluxc = flux/( tfit*rfit )
+        fluxc = flux/rfit
         return rpars, fluxc
 
 
@@ -2538,7 +2546,6 @@ class WFC3WhiteFitLM():
         #dsets = list( self.wlcs.keys() )
         ndsets = len( self.dsets )
         self.UpdateBatpars( pars )
-
         for i in range( ndsets ):
             dset = self.dsets[i]
             Tmid0k = self.Tmid0[dset]
@@ -2555,7 +2562,8 @@ class WFC3WhiteFitLM():
                         pdb.set_trace()
                     s = 4+m # RpRs, aRs, b, delT
                 else:
-                    s = 2 # EcDepth, delT
+                    #s = 2 # EcDepth, delT
+                    s = 4 # EcDepth, aRs, b, delT
                 psignal[ixsdk] = pmod[idkey].light_curve( batp[idkey] )
                 # Evaluate the systematics signal:
                 tfit, rfit = rfunc( thrs[ixsdk], torb[ixsdk], parsk[s:] )
@@ -2592,7 +2600,9 @@ class WFC3WhiteFitLM():
                 elif pmod[idkey].transittype==2:
                     # Secondary eclipses only have the eclipse depth and mid-time:
                     batp[idkey].fp = parsk[0]
-                    batp[idkey].t_secondary = Tmid0k + parsk[1]
+                    batp[idkey].a = parsk[1]
+                    batp[idkey].inc = np.rad2deg( np.arccos( parsk[2]/batp[idkey].a ) )
+                    batp[idkey].t_secondary = Tmid0k + parsk[3]
                 else:
                     pdb.set_trace()
         self.batpars = batp

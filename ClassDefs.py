@@ -632,7 +632,10 @@ class WFC3SpecFit():
         self.batpars = batpars
         self.pmodels = pmodels
         outp = {}
-        outp['slcs'] = self.slcs
+        #outp['slcs'] = self.slcs
+        outp['slcs'] = {}
+        for k in list( self.slcs.keys() ):
+            outp['slcs'][k] = self.slcs[k].__dict__
         outp['wmles'] = self.wmles
         outp['gpkernels'] = self.gpkernels
         outp['gpinputs'] = self.gpinputs
@@ -843,11 +846,11 @@ class WFC3SpecFitLM():
             dset = self.dsets[i]
             #Tmidi = self.Tmids[dset]
             slcs = self.slcs[dset]
-            self.wavedgesmicr = slcs.wavedgesmicr[self.chix]
-            ixsi = np.arange( slcs.jd.size )
+            self.wavedgesmicr = slcs['wavedgesmicr'][self.chix]
+            ixsi = np.arange( slcs['jd'].size )
             scanixs = {}
-            scanixs['f'] = ixsi[slcs.scandirs==1]
-            scanixs['b'] = ixsi[slcs.scandirs==-1]
+            scanixs['f'] = ixsi[slcs['scandirs']==1]
+            scanixs['b'] = ixsi[slcs['scandirs']==-1]
             ixs[dset] = {}
             self.keepixs[dset] = []
             nf = 500
@@ -856,17 +859,17 @@ class WFC3SpecFitLM():
                     print( '\nNo {0}-scan in {1} dataset. Remove from scankeys.\n'\
                            .format( k, dset ) )
                     pdb.set_trace()
-                jdi = slcs.jd[scanixs[k]]
+                jdi = slcs['jd'][scanixs[k]]
                 jdf = np.linspace( jdi.min(), jdi.max(), nf )
-                thrsi = 24*( jdi-slcs.jd[0] ) # time since start of visit in hours
-                torbi = slcs.auxvars[analysis]['torb'][scanixs[k]]
-                fluxi = slcs.lc_flux[lctype][scanixs[k],self.chix]
-                uncsi = slcs.lc_uncs[lctype][scanixs[k],self.chix]
+                thrsi = 24*( jdi-slcs['jd'][0] ) # time since start of visit in hours
+                torbi = slcs['auxvars'][analysis]['torb'][scanixs[k]]
+                fluxi = slcs['lc_flux'][lctype][scanixs[k],self.chix]
+                uncsi = slcs['lc_uncs'][lctype][scanixs[k],self.chix]
                 data += [ np.column_stack( [ jdi, thrsi, torbi, fluxi, uncsi ] ) ]
                 i2 = i1+len( fluxi )
                 ixs[dset][k] = np.arange( i1, i2 )
-                self.keepixs[dset] += [ np.arange( slcs.jd.size )[scanixs[k]] ]
-                batparik, pmodelik = self.GetBatmanObject( dset, jdi, slcs.config )
+                self.keepixs[dset] += [ np.arange( slcs['jd'].size )[scanixs[k]] ]
+                batparik, pmodelik = self.GetBatmanObject( dset, jdi, slcs['config'] )
                 #batparifk, pmodelifk = self.GetBatmanObject( jdif, wlc.config )
                 idkey = '{0}{1}'.format( dset, k )
                 self.pmodels[idkey] = pmodelik # TODO = change to [dset][k]?
@@ -971,7 +974,7 @@ class WFC3SpecFitLM():
         blabels0, binit0, bfixed0 = self.InitialBPars()
         nbpar = len( binit0 )
         slcs = self.slcs[dataset]
-        ixs = np.arange( slcs.jd.size )
+        ixs = np.arange( slcs['jd'].size )
         #scanixs = {}
         #scanixs['f'] = ixs[slcs.scandirs==1]
         #scanixs['b'] = ixs[slcs.scandirs==-1]
@@ -1015,7 +1018,7 @@ class WFC3SpecFitLM():
         Returns clean starting arrays for planet parameter arrays.
         """
         #dsets = list( self.wlcs.keys() )
-        config = self.slcs[self.dsets[0]].config
+        config = self.slcs[self.dsets[0]]['config']
         ldpars = self.ldpars[config][self.chix,:]
         pinit0 = []
         if transittype=='primary':
@@ -1065,7 +1068,7 @@ class WFC3SpecFitLM():
             ffit = mfit['psignal']*mfit['ttrend']
             ixsmg = {}
             for dset in self.dsets:
-                scandirs = self.slcs[dset].scandirs[ixsm[dset]]
+                scandirs = self.slcs[dset]['scandirs'][ixsm[dset]]
                 ixsmg['f'] = ixsm[dset][scandirs==1]
                 ixsmg['b'] = ixsm[dset][scandirs==-1]
                 ixsmz = []
@@ -1190,8 +1193,8 @@ class WFC3SpecFitLM():
         configs = []
         self.ldpars = {}
         for dset in self.dsets:
-            configs += [ self.slcs[dset].config ]
-            self.ldpars[configs[-1]] = self.slcs[dset].ld[k]
+            configs += [ self.slcs[dset]['config'] ]
+            self.ldpars[configs[-1]] = self.slcs[dset]['ld'][k]
         return None
     
 
@@ -1370,7 +1373,10 @@ class WFC3SpecFitLM():
     
     def Save( self ):
         outp = {}
-        outp['slcs'] = self.slcs
+        #outp['slcs'] = self.slcs
+        outp['slcs'] = {}
+        for k in list( self.slcs.keys() ):
+            outp['slcs'][k] = self.slcs[k]#.__dict__
         outp['wmles'] = self.wmles        
         outp['analysis'] = self.analysis
         outp['lctype'] = self.lctype
@@ -1534,12 +1540,12 @@ class WFC3WhiteFitLM():
             ixsc = self.cullixs[dset]
             # Define scanixs to already be culled before steps below:
             scanixs = {}
-            scanixs['f'] = ixsc[wlc.scandirs[ixsc]==1]
-            scanixs['b'] = ixsc[wlc.scandirs[ixsc]==-1]
+            scanixs['f'] = ixsc[wlc['scandirs'][ixsc]==1]
+            scanixs['b'] = ixsc[wlc['scandirs'][ixsc]==-1]
             Tmidi = self.syspars['Tmid'][0]
-            while Tmidi<wlc.jd.min():
+            while Tmidi<wlc['jd'].min():
                 Tmidi += self.syspars['P'][0]
-            while Tmidi>wlc.jd.max():
+            while Tmidi>wlc['jd'].max():
                 Tmidi -= self.syspars['P'][0]
             self.Tmid0[dset] = Tmidi
             ixs[dset] = {}
@@ -1550,18 +1556,18 @@ class WFC3WhiteFitLM():
                     print( '\nNo {0}-scan in {1} dataset. Remove from scankeys.\n'\
                            .format( k, dset ) )
                     pdb.set_trace()
-                jdi = wlc.jd[scanixs[k]]
+                jdi = wlc['jd'][scanixs[k]]
                 jdf = np.linspace( jdi.min(), jdi.max(), nf )
-                thrsi = 24*( jdi-wlc.jd[0] ) # time since start of visit in hours
-                torbi = wlc.whitelc[analysis]['auxvars']['torb'][scanixs[k]]
-                fluxi = wlc.whitelc[analysis]['flux'][scanixs[k]]
-                uncsi = wlc.whitelc[analysis]['uncs'][scanixs[k]]
+                thrsi = 24*( jdi-wlc['jd'][0] ) # time since start of visit in hours
+                torbi = wlc['whitelc'][analysis]['auxvars']['torb'][scanixs[k]]
+                fluxi = wlc['whitelc'][analysis]['flux'][scanixs[k]]
+                uncsi = wlc['whitelc'][analysis]['uncs'][scanixs[k]]
                 data += [ np.column_stack( [ jdi, thrsi, torbi, fluxi, uncsi ] ) ]
                 i2 = i1+len( fluxi )
                 ixs[dset][k] = np.arange( i1, i2 )
-                self.keepixs[dset] += [ np.arange( wlc.jd.size )[scanixs[k]] ]
-                batparik, pmodelik = self.GetBatmanObject( jdi, wlc.config )
-                #batparifk, pmodelifk = self.GetBatmanObject( jdif, wlc.config )
+                self.keepixs[dset] += [ np.arange( wlc['jd'].size )[scanixs[k]] ]
+                batparik, pmodelik = self.GetBatmanObject( jdi, wlc['config'] )
+                #batparifk, pmodelifk = self.GetBatmanObject( jdif, wlc['config'] )
                 idkey = '{0}{1}'.format( dset, k )
                 self.pmodels[idkey] = pmodelik # TODO = change to [dset][k]?
                 self.batpars[idkey] = batparik # TODO = change to [dset][k]?
@@ -1633,6 +1639,7 @@ class WFC3WhiteFitLM():
         print( '\nInitial parameter values:' )
         for i in range( self.npar ):
             print( '  {0} = {1}'.format( self.par_labels[i], self.pars_init[i] ) )
+        #pdb.set_trace()
         return None
 
 
@@ -1713,7 +1720,7 @@ class WFC3WhiteFitLM():
         Returns clean starting arrays for planet parameter arrays.
         """
         #dsets = list( self.wlcs.keys() )
-        config = self.wlcs[self.dsets[0]].config
+        config = self.wlcs[self.dsets[0]]['config']
         ldpars = self.ldpars[config]
         pinit0 = []
         if transittype=='primary':
@@ -1802,7 +1809,8 @@ class WFC3WhiteFitLM():
             idkey = '{0}{1}'.format( dataset, k )
             orbixs = UR.SplitHSTOrbixs( thrs[self.data_ixs[dataset][k]] )
             nmed = min( [ int( len( orbixs[-1] )/2. ), 3 ] )
-            fluxn[k] = fluxc[idkey]/np.median( fluxc[idkey][orbixs[-1]][-nmed:] )
+            fluxn[k] = fluxc[idkey]#/np.median( fluxc[idkey][orbixs[-1]][-nmed:] )
+            binit0[0] = np.median( fluxc[idkey][orbixs[-1]][-nmed:] )
             binit += binit0
             bixs[idkey] = np.arange( c, c+nbpar )
             c += nbpar
@@ -1905,12 +1913,18 @@ class WFC3WhiteFitLM():
         def CalcRMS( pars ):
             m = CalcModelBasic( pars )
             resids = []
+            #plt.ion()
+            #plt.figure()
+            #plt.plot( thrs, fluxn['f'], 'ok' )
+            #plt.plot( thrs, m[0]['G141v2f']*m[1]['G141v2f'], '-r' )
+            #pdb.set_trace()
             for k in self.scankeys[dataset]:
                 idkey = '{0}{1}'.format( dataset, k )
                 mk = m[0][idkey]*m[1][idkey]
                 resids += [ fluxn[k]-mk ]
             return np.sqrt( np.mean( np.concatenate( resids )**2. ) )
-        return scipy.optimize.fmin( CalcRMS, pars0 )
+        pfit = scipy.optimize.fmin( CalcRMS, pars0 )
+        return pfit
         
     
     def PrepRampPars( self ):
@@ -1921,7 +1935,6 @@ class WFC3WhiteFitLM():
         # For each scan direction, the systematics model consists of a
         # double-exponential ramp (a1,a2,a3,a4,a5):
         rlabels0 = [ 'a1', 'a2', 'a3', 'a4', 'a5' ]
-        #rlabels0 = [ 'a0', 'a1', 'a2', 'a3', 'a4', 'a5' ] #DELETE
         # Initial values for systematics parameters:
         rlabels = []
         rfixed = []
@@ -1953,7 +1966,7 @@ class WFC3WhiteFitLM():
                 c += 1
         rlabels = np.concatenate( rlabels )
         r = { 'labels':rlabels, 'fixed':rfixed, 'pars_init':rinit, 'ixs':rixs }
-        #print( rinit )
+        print( 'rinit', rinit )
         #pdb.set_trace()
         return r, fluxc
 
@@ -2007,7 +2020,8 @@ class WFC3WhiteFitLM():
         a1, a2, a3, a4, a5 = pbest[:-nbase]
         rpars = [ a1, a2, a3, a4, a5 ]
         tfit, rfit = rfunc( thrs, torb, pbest )
-        fluxc = flux/( tfit*rfit )
+        #fluxc = flux/( tfit*rfit )
+        fluxc = flux/rfit
         return rpars, fluxc
 
 
@@ -2076,7 +2090,7 @@ class WFC3WhiteFitLM():
                 ffit = mfit['psignal']*mfit['ttrend']*mfit['ramp']
                 ixsmg = {}
                 for dset in self.dsets:
-                    scandirs = self.wlcs[dset].scandirs[ixsm[dset]]
+                    scandirs = self.wlcs[dset]['scandirs'][ixsm[dset]]
                     ixsmg['f'] = ixsm[dset][scandirs==1] #testing
                     ixsmg['b'] = ixsm[dset][scandirs==-1] #testing
                     ixsmz = [] #testing
@@ -2538,7 +2552,6 @@ class WFC3WhiteFitLM():
         #dsets = list( self.wlcs.keys() )
         ndsets = len( self.dsets )
         self.UpdateBatpars( pars )
-
         for i in range( ndsets ):
             dset = self.dsets[i]
             Tmid0k = self.Tmid0[dset]
@@ -2555,7 +2568,8 @@ class WFC3WhiteFitLM():
                         pdb.set_trace()
                     s = 4+m # RpRs, aRs, b, delT
                 else:
-                    s = 2 # EcDepth, delT
+                    #s = 2 # EcDepth, delT
+                    s = 4 # EcDepth, aRs, b, delT
                 psignal[ixsdk] = pmod[idkey].light_curve( batp[idkey] )
                 # Evaluate the systematics signal:
                 tfit, rfit = rfunc( thrs[ixsdk], torb[ixsdk], parsk[s:] )
@@ -2592,7 +2606,9 @@ class WFC3WhiteFitLM():
                 elif pmod[idkey].transittype==2:
                     # Secondary eclipses only have the eclipse depth and mid-time:
                     batp[idkey].fp = parsk[0]
-                    batp[idkey].t_secondary = Tmid0k + parsk[1]
+                    batp[idkey].a = parsk[1]
+                    batp[idkey].inc = np.rad2deg( np.arccos( parsk[2]/batp[idkey].a ) )
+                    batp[idkey].t_secondary = Tmid0k + parsk[3]
                 else:
                     pdb.set_trace()
         self.batpars = batp
@@ -2612,8 +2628,8 @@ class WFC3WhiteFitLM():
         configs = []
         self.ldpars = {}
         for dset in self.dsets:
-            configs += [ self.wlcs[dset].config ]
-            self.ldpars[configs[-1]] = self.wlcs[dset].ld[k]
+            configs += [ self.wlcs[dset]['config'] ]
+            self.ldpars[configs[-1]] = self.wlcs[dset]['ld'][k]
         #configs = list( np.unique( np.array( configs ) ) )
         return None
 
@@ -2929,8 +2945,8 @@ class WFC3WhiteFitGP():
         wlc = self.wlcs[dset]
         ixsc = self.cullixs[dset]         
         scanixs = {}
-        scanixs['f'] = ixsc[wlc.scandirs[ixsc]==1]
-        scanixs['b'] = ixsc[wlc.scandirs[ixsc]==-1]
+        scanixs['f'] = ixsc[wlc['scandirs'][ixsc]==1]
+        scanixs['b'] = ixsc[wlc['scandirs'][ixsc]==-1]
         keepixs_final = []
         for k in self.scankeys[dset]:
             self.GetModelComponents( dset, parents, scanixs, k, Tmid )
@@ -3793,7 +3809,10 @@ class WFC3WhiteFitGP():
         self.batpars = batpars
         self.pmodels = pmodels
         outp = {}
-        outp['wlcs'] = self.wlcs
+        #outp['wlcs'] = self.wlcs
+        outp['wlcs'] = {}
+        for k in list( self.wlcs.keys() ):
+            outp['wlcs'][k] = self.wlcs[k].__dict__
         outp['analysis'] = self.analysis
         outp['cullixs_init'] = self.cullixs
         outp['keepixs_final'] = self.keepixs_final
@@ -3956,13 +3975,13 @@ class WFC3SpecLightCurves():
         ifile = open( self.spec1d_fpath, 'rb' )
         spec1d = pickle.load( ifile )
         ifile.close()
-        self.config = spec1d.config
+        self.config = spec1d['config']
         ifile = open( self.whitefit_fpath_pkl, 'rb' )
         whitefit = pickle.load( ifile )
         ifile.close()
         self.analysis = whitefit['analysis']        
         print( 'Done.' )
-        self.rkeys = spec1d.rkeys
+        self.rkeys = spec1d['rkeys']
         #ecounts1d = spec1d.spectra[self.analysis]['ecounts1d']
         # Generate the speclcs:
         self.PrepSpecLCs( spec1d, whitefit )
@@ -3992,12 +4011,12 @@ class WFC3SpecLightCurves():
         # Get ixs to be used for each scan direction:
         self.scankeys = list( whitefit['bestfits'][self.dsetname].keys() )
         ixsc = whitefit['keepixs_final'][self.dsetname]
-        self.jd = spec1d.jd[ixsc]
-        self.scandirs = spec1d.scandirs[ixsc]
+        self.jd = spec1d['jd'][ixsc]
+        self.scandirs = spec1d['scandirs'][ixsc]
         # Copy auxvars, cull, split into f and b to start:
         self.auxvars = {}
-        for k in list( spec1d.spectra.keys() ):
-            auxvarsk = spec1d.spectra[self.analysis]['auxvars'].copy()
+        for k in list( spec1d['spectra'].keys() ):
+            auxvarsk = spec1d['spectra'][self.analysis]['auxvars'].copy()
             self.auxvars[k] = {}
             for i in list( auxvarsk.keys() ):
                 self.auxvars[k][i] = auxvarsk[i][ixsc]
@@ -4006,8 +4025,8 @@ class WFC3SpecLightCurves():
         wfitarrs = whitefit['bestfits'][self.dsetname]
         wflux = whitefit['wlcs'][self.dsetname].whitelc[self.analysis]['flux']
         self.MakeCommonMode( wfitarrs, wflux[ixsc] )
-        wavmicr = spec1d.spectra[self.analysis]['wavmicr']
-        ecounts1d = spec1d.spectra[self.analysis]['ecounts1d']
+        wavmicr = spec1d['spectra'][self.analysis]['wavmicr']
+        ecounts1d = spec1d['spectra'][self.analysis]['ecounts1d']
         self.GetChannels( wavmicr )
         self.lc_flux = { 'raw':{}, 'cm':{}, 'ss':{} }
         self.lc_uncs = { 'raw':{}, 'cm':{}, 'ss':{} }
@@ -4207,7 +4226,7 @@ class WFC3SpecLightCurves():
         ld.intens = atlas.intens
         ld.mus = atlas.mus
         bp = Bandpass()
-        bp.config = spec1d.config
+        bp.config = spec1d['config']
         bp.fpath = self.bandpass_fpath
         bp.Read()
         ld.bandpass_wavmicr = bp.bandpass_wavmicr
@@ -4230,14 +4249,14 @@ class WFC3SpecLightCurves():
             os.makedirs( self.lc_dir )
         self.GenerateFilePath()
         ofile = open( self.lc_fpath, 'wb' )
-        pickle.dump( self, ofile )
+        pickle.dump( self.__dict__, ofile )
         ofile.close()
         print( '\nSaved:\n{0}'.format( self.lc_fpath ) )
         return None
 
     def Plot( self, spec1d ):
-        wavmicr = spec1d.spectra[self.analysis]['wavmicr']
-        f = spec1d.spectra[self.analysis]['ecounts1d'][-1,:]
+        wavmicr = spec1d['spectra'][self.analysis]['wavmicr']
+        f = spec1d['spectra'][self.analysis]['ecounts1d'][-1,:]
         f /= f.max()
         plt.ioff()
         nchan = len( self.chixs )
@@ -4255,7 +4274,7 @@ class WFC3SpecLightCurves():
             ixu = self.chixs[i][1]
             ixs = ( wavmicr>=wavmicr[ixl] )*( wavmicr<=wavmicr[ixu] )
             ax.fill_between( wavmicr[ixs], 0, f[ixs], facecolor=c, alpha=alphaj )
-        if spec1d.config=='G141':
+        if spec1d['config']=='G141':
             ax.set_xlim( [ 0.97, 1.8 ] )
         opath = self.lc_fpath.replace( '.pkl', '.chixs.pdf' )
         titlestr = 'nchan={0:.0f}, cutonmicr={1:.3f}, npixpbin={2:.0f}'\
@@ -4274,10 +4293,10 @@ class WFC3SpecLightCurves():
 
     def LoadFromFile( self ):
         ifile = open( self.lc_fpath, 'rb' )
-        self = pickle.load( ifile )
+        slcs = pickle.load( ifile )
         ifile.close()
-        print( '\nLoaded:{0}\n'.format( self.lc_fpath ) )
-        return self
+        print( '\nLoaded:{0}\n'.format( slcs['lc_fpath'] ) )
+        return slcs
 
     
     
@@ -4302,18 +4321,18 @@ class WFC3WhiteLightCurve():
         spec1d = pickle.load( ifile )
         ifile.close()
         print( 'Done.' )
-        d1, d2 = spec1d.trim_box[1]
-        self.jd = spec1d.jd
-        self.scandirs = spec1d.scandirs
-        self.config = spec1d.config
+        d1, d2 = spec1d['trim_box'][1]
+        self.jd = spec1d['jd']
+        self.scandirs = spec1d['scandirs']
+        self.config = spec1d['config']
         #self.rkeys = ['rlast']
-        self.rkeys = spec1d.rkeys
+        self.rkeys = spec1d['rkeys']
         self.whitelc = {}
         for k in self.rkeys:
             self.whitelc[k] = {}
-            self.whitelc[k]['auxvars'] = spec1d.spectra[k]['auxvars']
-            wavmicr = spec1d.spectra[k]['wavmicr'][d1:d2+1]
-            ecounts1d = spec1d.spectra[k]['ecounts1d'][:,d1:d2+1]
+            self.whitelc[k]['auxvars'] = spec1d['spectra'][k]['auxvars']
+            wavmicr = spec1d['spectra'][k]['wavmicr'][d1:d2+1]
+            ecounts1d = spec1d['spectra'][k]['ecounts1d'][:,d1:d2+1]
             if self.dispixs=='all':
                 self.cutonmicr = wavmicr.min()
                 self.cutoffmicr = wavmicr.max()
@@ -4344,7 +4363,7 @@ class WFC3WhiteLightCurve():
         ld.intens = atlas.intens
         ld.mus = atlas.mus
         bp = Bandpass()
-        bp.config = spec1d.config
+        bp.config = spec1d['config']
         bp.fpath = self.bandpass_fpath
         bp.Read()
         ld.bandpass_wavmicr = bp.bandpass_wavmicr
@@ -4435,7 +4454,7 @@ class WFC3WhiteLightCurve():
             os.makedirs( self.lc_dir )
         self.GenerateFilePath()
         ofile = open( self.lc_fpath, 'wb' )
-        pickle.dump( self, ofile )
+        pickle.dump( self.__dict__, ofile )
         ofile.close()
         print( '\nSaved:\n{0}'.format( self.lc_fpath ) )
         self.Plot()
@@ -4535,7 +4554,7 @@ class WFC3Spectra():
             os.makedirs( self.spec1d_dir )
         self.spec1d_fpath = os.path.join( self.spec1d_dir, self.GenerateFileName() )
         ofile = open( self.spec1d_fpath, 'wb' )
-        pickle.dump( self, ofile )
+        pickle.dump( self.__dict__, ofile )
         ofile.close()
         print( '\nSaved:\n{0}'.format( self.spec1d_fpath ) )
         return None
@@ -4555,9 +4574,29 @@ class WFC3Spectra():
         self = pickle.load( ifile )
         ifile.close()
         return self
+
+    def ApproxSSDispboundIxs( self ):
+        e1d = []
+        for k in self.rkeys:
+            e1d += [ np.median( self.spectra[k]['ecounts1d'], axis=0 ) ]
+        e1d = np.median( np.row_stack( e1d ), axis=0 )
+        x = np.arange( e1d.size )
+        ixs = ( x>=self.trim_disp_ixs[0] )*( x<=self.trim_disp_ixs[1] )*( e1d>0.5*e1d.max() )
+        ix0 = x[ixs][0]
+        ix1 = x[ixs][-1]
+        #plt.ioff()
+        #plt.plot( x, e1d, '-k' )
+        #plt.plot( x[ixs], e1d[ixs], '.r' )
+        #plt.savefig( 'delete.pdf' )
+        #print( 'SHIFTSTRETCH TEST' )
+        #pdb.set_trace()
+        return ix0, ix1
         
     def ShiftStretch( self ):
-        d1, d2 = self.ss_dispbound_ixs
+        if self.ss_dispbound_ixs is 'speclc_range':
+            d1, d2 = self.ApproxSSDispboundIxs()
+        else:
+            d1, d2 = self.ss_dispbound_ixs
         dpix_max = 1
         dwav_max = dpix_max*self.dispersion_micrppix
         nshifts = int( np.round( 2*dpix_max*(1e3)+1 ) ) # 0.001 pix
@@ -4616,7 +4655,10 @@ class WFC3Spectra():
         A = np.ones( [ ymeas.size, 2 ] )
         b = np.reshape( ymeas/ymeas.max(), [ ymeas.size, 1 ] )
         ss_fits = []
-        ix0, ix1 = self.ss_dispbound_ixs
+        if self.ss_dispbound_ixs is 'speclc_range':
+            ix0, ix1 = self.ApproxSSDispboundIxs()
+        else:
+            ix0, ix1 = self.ss_dispbound_ixs
         for i in range( nshifts ):
             # Assuming the default x-solution is x0, shift the model
             # array by dx. If this provides a good match to the data,
@@ -4769,6 +4811,8 @@ class WFC3Spectra():
         # Take the median orbit start time to be at the same
         # HST phase, so the difference gives the HST period:
         hst_period = np.median( np.diff( firstexps ) )
+        if np.isfinite( hst_period )==False:
+            hst_period = 96./60./24.
         norb = int( np.ceil( ( jd.max()-jd.min() )/hst_period ) )
         delt_edges = []
         # Set zero phase a bit before the first exposure:
@@ -5081,6 +5125,16 @@ class WFC3Spectra():
         self = pickle.load( ifile )
         ifile.close()
 
+    #def MakeOutputDict( self ):
+    #    """
+    #    Extract object attributes to be saved and return as a dictionary.
+    #    """
+    #    import inspect
+    #    attributes = inspect.getmembers( self, lambda a:not( inspect.isroutine(a) ) )
+    #    pdb.set_trace()
+    #    return None
+        
+        
 
 class Bandpass():
 

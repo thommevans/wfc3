@@ -21,7 +21,7 @@ except:
 # TODO: save pickle output in format that doesn't require the wfc3 package
 # to be opened, i.e. don't save wfc3 class objects in this pickle output.
     
-class WFC3SpecFit():
+class WFC3SpecFitGP():
     def __init__( self ):
         self.slcs = None
         self.wmles = None
@@ -635,7 +635,7 @@ class WFC3SpecFit():
         #outp['slcs'] = self.slcs
         outp['slcs'] = {}
         for k in list( self.slcs.keys() ):
-            outp['slcs'][k] = self.slcs[k].__dict__
+            outp['slcs'][k] = self.slcs[k]#.__dict__
         outp['wmles'] = self.wmles
         outp['gpkernels'] = self.gpkernels
         outp['gpinputs'] = self.gpinputs
@@ -3809,10 +3809,7 @@ class WFC3WhiteFitGP():
         self.batpars = batpars
         self.pmodels = pmodels
         outp = {}
-        #outp['wlcs'] = self.wlcs
-        outp['wlcs'] = {}
-        for k in list( self.wlcs.keys() ):
-            outp['wlcs'][k] = self.wlcs[k].__dict__
+        outp['wlcs'] = self.wlcs
         outp['analysis'] = self.analysis
         outp['cullixs_init'] = self.cullixs
         outp['keepixs_final'] = self.keepixs_final

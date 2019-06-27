@@ -4456,8 +4456,10 @@ class WFC3WhiteLightCurve():
         print( '\nSaved:\n{0}'.format( self.lc_fpath ) )
         self.Plot()
         return None
-        
-    def LoadFromFile( self ):
+
+    # Since WhiteLC objects are now saved as simple dictionaries,
+    # this routine is probably redundant...
+    def LoadFromFile( self ):        
         ifile = open( self.lc_fpath, 'rb' )
         self = pickle.load( ifile )
         ifile.close()
@@ -4566,11 +4568,13 @@ class WFC3Spectra():
         print( '\nSaved:\n{0}'.format( self.ecounts2d_fpath ) )
         return None
 
-    def LoadFromFile( self ):
-        ifile = open( self.spec1d_fpath, 'rb' )
-        self = pickle.load( ifile )
-        ifile.close()
-        return self
+    # Since Spectra objects are now saved as simple dictionaries,
+    # this routine is probably redundant...
+    #def LoadFromFile( self ):
+    #    ifile = open( self.spec1d_fpath, 'rb' )
+    #    self = pickle.load( ifile )
+    #    ifile.close()
+    #    return self
 
     def ApproxSSDispboundIxs( self ):
         e1d = []

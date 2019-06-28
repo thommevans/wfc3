@@ -4020,7 +4020,7 @@ class WFC3SpecLightCurves():
         self.analysis = whitefit['analysis']
         ixsc = whitefit['keepixs_final'][self.dsetname]
         wfitarrs = whitefit['bestfits'][self.dsetname]
-        wflux = whitefit['wlcs'][self.dsetname].whitelc[self.analysis]['flux']
+        wflux = whitefit['wlcs'][self.dsetname]['whitelc'][self.analysis]['flux']
         self.MakeCommonMode( wfitarrs, wflux[ixsc] )
         wavmicr = spec1d['spectra'][self.analysis]['wavmicr']
         ecounts1d = spec1d['spectra'][self.analysis]['ecounts1d']

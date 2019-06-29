@@ -1215,7 +1215,7 @@ class WFC3SpecFitLM():
             self.ppar_init['RpRs'] = batpar.rp
         if self.syspars['tr_type']=='secondary':
             batpar.rp = self.syspars['RpRs'][0]
-            batpar.fp = self.mles[dset]['EcDepth']
+            batpar.fp = self.wmles[dset]['EcDepth']
             batpar.t0 = self.syspars['T0'][0]
             batpar.t_secondary = self.Tmids[dset]
             self.ppar_init['EcDepth'] = batpar.rp

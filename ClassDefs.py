@@ -491,7 +491,6 @@ class WFC3SpecFitGP():
         gpinputs = self.gpinputs[dset]
         auxvars = self.slcs[dset].auxvars[self.analysis]
 
-        #auxvars = wlc.whitelc[analysis]['auxvars']
         cond1 = ( gp.cfunc==kernels.sqexp_invL_ard )
         cond2 = ( gp.cfunc==kernels.matern32_invL_ard )
         cond3 = ( gp.cfunc==kernels.sqexp_invL )
@@ -2906,13 +2905,13 @@ class WFC3WhiteFitGP():
         for j in range( nvisits ):
             k = self.dsets[j]
             parentsk = parents.copy()
-            config = self.wlcs[k].config
+            config = self.wlcs[k]['config']
             delTlab = 'delT_{0}'.format( k )
             delTk = pyhm.Uniform( delTlab, lower=-0.3, upper=0.3 )
             self.mbundle[delTlab] = delTk
             self.initvals[delTlab] = 0
             parentsk['delT'] = delTk
-            jd = self.wlcs[k].jd
+            jd = self.wlcs[k]['jd']
             Tmidk = self.syspars['Tmid'][0]
             while Tmidk<jd.min():
                 Tmidk += self.syspars['P'][0]
@@ -2990,7 +2989,7 @@ class WFC3WhiteFitGP():
         if self.orbpars=='free':
             self.initvals['aRs'] = self.syspars['aRs'][0]
             self.initvals['b'] = self.syspars['b'][0]
-        batpar, pmodel = self.GetBatmanObject( wlc.jd[ixs], wlc.config )
+        batpar, pmodel = self.GetBatmanObject( wlc['jd'][ixs], wlc['config'] )
         z = self.GPLogLike( dset, parents, batpar, pmodel, Tmid, ixs, idkey )
         loglikename = 'loglike_{0}'.format( idkey )
         self.mbundle[loglikename] = z['loglikefunc']
@@ -3097,11 +3096,11 @@ class WFC3WhiteFitGP():
     
     def GPLogLike( self, dset, parents, batpar, pmodel, Tmid0, ixs, idkey ):
         wlc = self.wlcs[dset]
-        config = wlc.config
-        jd = wlc.jd[ixs]
-        tv = wlc.whitelc[self.analysis]['auxvars']['tv'][ixs]
-        flux = wlc.whitelc[self.analysis]['flux'][ixs]
-        uncs = wlc.whitelc[self.analysis]['uncs'][ixs]
+        config = wlc['config']
+        jd = wlc['jd'][ixs]
+        tv = wlc['whitelc'][self.analysis]['auxvars']['tv'][ixs]
+        flux = wlc['whitelc'][self.analysis]['flux'][ixs]
+        uncs = wlc['whitelc'][self.analysis]['uncs'][ixs]
         lintcoeffs = UR.LinTrend( jd, tv, flux )
         ldbat = self.ldbat
         #pars = {}
@@ -3161,7 +3160,6 @@ class WFC3WhiteFitGP():
         gp.cfunc = self.gpkernels[dset]
         gp.mpars = {}
 
-        #auxvars = wlc.whitelc[analysis]['auxvars']
         cond1 = ( gp.cfunc==kernels.sqexp_invL_ard )
         cond2 = ( gp.cfunc==kernels.matern32_invL_ard )
         cond3 = ( gp.cfunc==kernels.sqexp_invL )
@@ -3199,7 +3197,7 @@ class WFC3WhiteFitGP():
             #v = auxvars[gpinputs[k]]
             k, label = UR.GetVarKey( i )
             #v = auxvars[k]
-            v = self.wlcs[dset].whitelc[self.analysis]['auxvars'][k]
+            v = self.wlcs[dset]['whitelc'][self.analysis]['auxvars'][k]
             #ext = '{0}_{1}'.format( label, idkey )
             vs = ( v-np.mean( v ) )/np.std( v )
             #logiLlabel = 'logiL{0}'.format( ext )
@@ -3246,7 +3244,7 @@ class WFC3WhiteFitGP():
             #v = auxvars[gpinputs[k]]
             k, label = UR.GetVarKey( i )
             #v = auxvars[k]
-            v = self.wlcs[dset].whitelc[self.analysis]['auxvars'][k][ixs]
+            v = self.wlcs[dset]['whitelc'][self.analysis]['auxvars'][k][ixs]
             ext = '{0}_{1}'.format( label, idkey )
             vs = ( v-np.mean( v ) )/np.std( v )
             logiLlabel = 'logiL{0}'.format( ext )
@@ -3275,24 +3273,24 @@ class WFC3WhiteFitGP():
         """
         wlc = self.wlcs[dset]
         syspars = self.syspars
-        jd = wlc.jd[ixs]
+        jd = wlc['jd'][ixs]
         #tv = wlc.tv[ixs]
-        phi = wlc.whitelc[self.analysis]['auxvars']['hstphase'][ixs]
-        tv = wlc.whitelc[self.analysis]['auxvars']['tv'][ixs]
-        x = wlc.whitelc[self.analysis]['auxvars']['wavshift_pix'][ixs]
+        phi = wlc['whitelc'][self.analysis]['auxvars']['hstphase'][ixs]
+        tv = wlc['whitelc'][self.analysis]['auxvars']['tv'][ixs]
+        x = wlc['whitelc'][self.analysis]['auxvars']['wavshift_pix'][ixs]
         phiv = ( phi-np.mean( phi ) )/np.std( phi )
         xv = ( x-np.mean( x ) )/np.std( x )
         ndat = tv.size
         offset = np.ones( ndat )
         
         B = np.column_stack( [ offset, tv, xv, phiv, phiv**2., phiv**3., phiv**4. ] )
-        flux = wlc.whitelc[self.analysis]['flux'][ixs]
-        uncs = wlc.whitelc[self.analysis]['uncs'][ixs]
-        batpar, pmodel = self.GetBatmanObject( jd, wlc.config )
+        flux = wlc['whitelc'][self.analysis]['flux'][ixs]
+        uncs = wlc['whitelc'][self.analysis]['uncs'][ixs]
+        batpar, pmodel = self.GetBatmanObject( jd, wlc['config'] )
         ntrials = 15        
         if self.syspars['tr_type']=='primary':
             batpar.limb_dark = 'quadratic'
-            batpar.u = wlc.ld['quad1d']
+            batpar.u = wlc['ld']['quad1d']
             zstart = self.PolyFitPrimary( batpar, pmodel, Tmid, B, flux, uncs, ntrials )
         elif self.syspars['tr_type']=='secondary':
             zstart = self.PolyFitSecondary( batpar, pmodel, Tmid, B, flux, uncs, ntrials )
@@ -3505,16 +3503,16 @@ class WFC3WhiteFitGP():
         for i in range( nvisits ):
             j = self.dsets[i]
             wlc = self.wlcs[j]
-            delt = wlc.jd-wlc.jd[0]
-            jd = wlc.jd
+            delt = wlc['jd']-wlc['jd'][0]
+            jd = wlc['jd']
             # User-defined cullixs:
             ixsc = self.cullixs[j]
             ixsf0 = ixsc[wlc.scandirs[ixsc]==1]
             ixsb0 = ixsc[wlc.scandirs[ixsc]==-1]
             tmid = self.GetTmid( j, ixsf0, ixsb0 )
             thrs = 24.*( jd-tmid )
-            flux = wlc.whitelc[self.analysis]['flux']
-            uncs = wlc.whitelc[self.analysis]['uncs']
+            flux = wlc['whitelc'][self.analysis]['flux']
+            uncs = wlc['whitelc'][self.analysis]['uncs']
             if ixsf0.sum()>0:
                 zf = self.PrepPlotVars( j, delt, flux, uncs, scandir='f' )
                 zf['thrsf'] = 24*( zf['jdf']-tmid )

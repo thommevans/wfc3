@@ -1524,7 +1524,8 @@ class WFC3WhiteFitLM():
         self.dsets = list( self.wlcs.keys() )
         ndsets = len( self.dsets )
         analysis = self.analysis
-        self.SetupLDPars()
+        if self.syspars['tr_type']=='primary':
+            self.SetupLDPars()
         data = []
         ixs = {} # indices to split vstacked data
         self.keepixs = {} # indices to map vstacked data back to original
@@ -1720,9 +1721,9 @@ class WFC3WhiteFitLM():
         """
         #dsets = list( self.wlcs.keys() )
         config = self.wlcs[self.dsets[0]]['config']
-        ldpars = self.ldpars[config]
         pinit0 = []
         if transittype=='primary':
+            ldpars = self.ldpars[config]
             s = 5
             if self.ld.find( 'quad' )>=0:
                 plabels = [ 'RpRs', 'aRs', 'b', 'gam1', 'gam2' ]
@@ -2284,6 +2285,7 @@ class WFC3WhiteFitLM():
         outp['keepixs_final'] = self.keepixs
         outp['par_ixs'] = self.par_ixs
         outp['model_fit'] = self.model_fit
+        outp['systematics'] = 'DE'
         self.BestFitsOut()
         outp['bestfits'] = self.bestfits
         outp['uncertainties_rescale'] = self.uncertainties_rescale
@@ -3821,6 +3823,7 @@ class WFC3WhiteFitGP():
         outp['batpars'] = self.batpars
         outp['pmodels'] = self.pmodels
         outp['bestfits'] = bestfits
+        outp['systematics'] = 'GP'
         outp['orbpars'] = { 'fittype':self.orbpars }
         if ( self.orbpars=='fixed' ):#+( self.orbpars=='wmeanfixed' ):
             outp['orbpars']['aRs'] = self.mbundle['aRs']
@@ -3877,7 +3880,12 @@ class WFC3WhiteFitGP():
         elif self.orbpars=='fixed':
             dirbase = os.path.join( dirbase, 'orbpars_fixed' )
         else:
+            print( '\n\n\norbpars must be "free" or "fixed"\n\n\n' )
             pdb.set_trace() # haven't implemented other cases yet
+        if self.Tmid_free==True:
+            dirbase = os.path.join( dirbase, 'Tmid_free' )
+        else:
+            dirbase = os.path.join( dirbase, 'Tmid_fixed' )
         if self.syspars['tr_type']=='primary':
             dirbase = os.path.join( dirbase, self.ld )
         else:
@@ -3984,6 +3992,10 @@ class WFC3SpecLightCurves():
         self.analysis = whitefit['analysis']        
         print( 'Done.' )
         self.rkeys = spec1d['rkeys']
+        if 'systematics' in whitefit:
+            self.systematics = whitefit['systematics']
+        else:
+            self.systematics = None
         #ecounts1d = spec1d.spectra[self.analysis]['ecounts1d']
         # Generate the speclcs:
         self.PrepSpecLCs( spec1d, whitefit )
@@ -4288,7 +4300,11 @@ class WFC3SpecLightCurves():
         return None
     
     def GenerateFilePath( self ):
-        oname = 'speclcs.{0}'.format( os.path.basename( self.spec1d_fpath ) )
+        if self.systematics is not None:
+            prefix = 'speclcs.{0}'.format( self.systematics )
+        else:
+            prefix = 'speclcs'
+        oname = '{0}.{1}'.format( prefix, os.path.basename( self.spec1d_fpath ) )
         oname = oname.replace( '.pkl', '.nchan{0}.pkl'.format( self.nchannels ) )
         self.lc_fpath = os.path.join( self.lc_dir, oname )
         return None

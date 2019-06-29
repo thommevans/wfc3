@@ -476,8 +476,8 @@ def BestFitsEval( mle, evalmodels ):
             bestfits[k][j] = z['arrays']
             batpars[k][j] = z['batpar']
             pmodels[k][j] = z['pmodel']
-            print( 'rrrr', z['arrays'].keys() )
-            pdb.set_trace()
+            #print( 'rrrr', z['arrays'].keys() )
+            #pdb.set_trace()
     return bestfits, batpars, pmodels
 
 

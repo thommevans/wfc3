@@ -2646,11 +2646,15 @@ class WFC3WhiteFitLM():
             batpar.inc = np.rad2deg( np.arccos( b/batpar.a ) )
         batpar.ecc = self.syspars['ecc'][0]
         batpar.w = self.syspars['omega'][0]
-        batpar.limb_dark = self.ldbat
-        batpar.u = self.ldpars[config]
         if self.syspars['tr_type']=='secondary':
             batpar.fp = self.syspars['EcDepth']
             batpar.t_secondary = self.syspars['Tmid'][0]
+            batpar.limb_dark = 'uniform'
+            batpar.u = []
+        else:
+            batpar.limb_dark = self.ldbat
+            batpar.u = self.ldpars[config]
+            
         pmodel = batman.TransitModel( batpar, jd, transittype=self.syspars['tr_type'] )
         # Following taken from here:
         # https://www.cfa.harvard.edu/~lkreidberg/batman/trouble.html#help-batman-is-running-really-slowly-why-is-this
@@ -2825,11 +2829,14 @@ class WFC3WhiteFitGP():
             batpar.inc = np.rad2deg( np.arccos( b/batpar.a ) )
         batpar.ecc = self.syspars['ecc'][0]
         batpar.w = self.syspars['omega'][0]
-        batpar.limb_dark = self.ldbat
-        batpar.u = self.ldpars[config]
         if self.syspars['tr_type']=='secondary':
             batpar.fp = self.syspars['EcDepth']
             batpar.t_secondary = self.syspars['Tmid'][0]
+            batpar.limb_dark = 'uniform'
+            batpar.u = []
+        else:
+            batpar.limb_dark = self.ldbat
+            batpar.u = self.ldpars[config]
         pmodel = batman.TransitModel( batpar, jd, transittype=self.syspars['tr_type'] )
         # Following taken from here:
         # https://www.cfa.harvard.edu/~lkreidberg/batman/trouble.html#help-batman-is-running-really-slowly-why-is-this
@@ -3507,8 +3514,8 @@ class WFC3WhiteFitGP():
             jd = wlc['jd']
             # User-defined cullixs:
             ixsc = self.cullixs[j]
-            ixsf0 = ixsc[wlc.scandirs[ixsc]==1]
-            ixsb0 = ixsc[wlc.scandirs[ixsc]==-1]
+            ixsf0 = ixsc[wlc['scandirs'][ixsc]==1]
+            ixsb0 = ixsc[wlc['scandirs'][ixsc]==-1]
             tmid = self.GetTmid( j, ixsf0, ixsb0 )
             thrs = 24.*( jd-tmid )
             flux = wlc['whitelc'][self.analysis]['flux']

@@ -2771,8 +2771,8 @@ class WFC3WhiteFitGP():
         configs = []
         self.ldpars = {}
         for dset in self.dsets:
-            configs += [ self.wlcs[dset].config ]
-            self.ldpars[configs[-1]] = self.wlcs[dset].ld[k]
+            configs += [ self.wlcs[dset]['config'] ]
+            self.ldpars[configs[-1]] = self.wlcs[dset]['ld'][k]
         configs = list( np.unique( np.array( configs ) ) )
         for c in configs:
             ldc = self.ldpars[c]

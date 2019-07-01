@@ -3822,6 +3822,7 @@ class WFC3WhiteFitGP():
         outp['keepixs_final'] = self.keepixs_final
         outp['batpars'] = self.batpars
         outp['pmodels'] = self.pmodels
+        outp['syspars'] = self.syspars
         outp['bestfits'] = bestfits
         outp['systematics'] = 'GP'
         outp['orbpars'] = { 'fittype':self.orbpars }
@@ -3834,6 +3835,10 @@ class WFC3WhiteFitGP():
         outp['mle'] = self.mle
         outp['freepars'] = self.freepars
         outp['Tmid0'] = self.Tmid0
+        outp['Tmids'] = {}
+        for k in list( self.Tmid0.keys() ):
+            delTk = self.mle[self.Tmid0[k][1]]
+            outp['Tmids'][k] = self.Tmid0[k][0] + delTk
         ofile = open( self.whitefit_mle_fpath_pkl, 'wb' )
         pickle.dump( outp, ofile )
         ofile.close()

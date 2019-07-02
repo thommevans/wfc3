@@ -833,7 +833,8 @@ class WFC3SpecFitLM():
         ndsets = len( self.dsets )
         analysis = self.analysis
         lctype = self.lctype
-        self.SetupLDPars()
+        if self.syspars['tr_type']=='primary':
+            self.SetupLDPars()
         data = []
         ixs = {} # indices to split vstacked data
         self.keepixs = {} # indices to map vstacked data back to original
@@ -1018,10 +1019,10 @@ class WFC3SpecFitLM():
         """
         #dsets = list( self.wlcs.keys() )
         config = self.slcs[self.dsets[0]]['config']
-        ldpars = self.ldpars[config][self.chix,:]
         pinit0 = []
         if transittype=='primary':
-            s = 3
+            ldpars = self.ldpars[config][self.chix,:]
+            #s = 3
             if self.ld.find( 'quad' )>=0:
                 plabels = [ 'RpRs', 'gam1', 'gam2' ]
                 try:
@@ -1035,7 +1036,20 @@ class WFC3SpecFitLM():
                 if self.ld.find( 'free' )>=0:
                     pfixed = np.array( [ 0, 0, 0 ] )
             elif self.ld.find( 'nonlin' )>=0:
+                # testing implementation of 4-parameter limb darkening law...
                 pdb.set_trace() # TODO - implement 4-parameter LD
+                plabels = [ 'RpRs', 'c1', 'c2', 'c3', 'c4' ]
+                try:
+                    pinit0 += [ self.ppar_init['RpRs'] ]                        
+                except:
+                    pinit0 += [ self.syspars['RpRs'][0] ]
+                pinit0 += [ ldpars[0], ldpars[1] ]
+                pinit0 = np.array( pinit0 )
+                if self.ld.find( 'fixed' )>=0:
+                    pfixed = np.array( [ 0, 1, 1 ] )
+                if self.ld.find( 'free' )>=0:
+                    pfixed = np.array( [ 0, 0, 0 ] )
+                
         elif transittype=='secondary':
             plabels = [ 'EcDepth' ]
             try:
@@ -1203,8 +1217,6 @@ class WFC3SpecFitLM():
         batpar.per = self.syspars['P'][0]
         batpar.ecc = self.syspars['ecc'][0]
         batpar.w = self.syspars['omega'][0]
-        batpar.limb_dark = self.ldbat
-        batpar.u = self.ldpars[config][self.chix,:]
         batpar.a = self.orbpars['aRs']
         batpar.inc = self.orbpars['incl']
         self.ppar_init = {}
@@ -1212,12 +1224,16 @@ class WFC3SpecFitLM():
             batpar.rp = self.wmles[dset]['RpRs']
             batpar.t0 = self.Tmids[dset]
             self.ppar_init['RpRs'] = batpar.rp
+            batpar.limb_dark = self.ldbat
+            batpar.u = self.ldpars[config][self.chix,:]
         if self.syspars['tr_type']=='secondary':
             batpar.rp = self.syspars['RpRs'][0]
             batpar.fp = self.wmles[dset]['EcDepth']
             batpar.t0 = self.syspars['T0'][0]
             batpar.t_secondary = self.Tmids[dset]
             self.ppar_init['EcDepth'] = batpar.rp
+            batpar.limb_dark = 'uniform'
+            batpar.u = []
         pmodel = batman.TransitModel( batpar, jd, transittype=self.syspars['tr_type'] )
         # Following taken from here:
         # https://www.cfa.harvard.edu/~lkreidberg/batman/trouble.html#help-batman-is-running-really-slowly-why-is-this
@@ -1724,7 +1740,7 @@ class WFC3WhiteFitLM():
         pinit0 = []
         if transittype=='primary':
             ldpars = self.ldpars[config]
-            s = 5
+            #s = 5
             if self.ld.find( 'quad' )>=0:
                 plabels = [ 'RpRs', 'aRs', 'b', 'gam1', 'gam2' ]
                 for l in [ 'RpRs', 'aRs', 'b' ]:

@@ -88,8 +88,8 @@ class WFC3SpecFitGP():
         configs = []
         self.ldpars = {}
         for dset in dsets:
-            configs += [ self.slcs[dset].config ]
-            self.ldpars[configs[-1]] = self.slcs[dset].ld[k]
+            configs += [ self.slcs[dset]['config'] ]
+            self.ldpars[configs[-1]] = self.slcs[dset]['ld'][k]
         configs = list( np.unique( np.array( configs ) ) )
         for c in configs:
             ldc = self.ldpars[c][self.chix,:]
@@ -140,7 +140,7 @@ class WFC3SpecFitGP():
         for j in range( nvisits ):
             k = dsets[j]
             parentsk = parents.copy()
-            jd = self.slcs[k].jd
+            jd = self.slcs[k]['jd']
             self.ndat[k] = len( jd )
             if ( self.syspars['tr_type']=='primary' ):
                 if self.RpRs_shared==False:
@@ -163,9 +163,9 @@ class WFC3SpecFitGP():
 
 
     def BasisMatrix( self, dset, ixs ):
-        phi = self.slcs[dset].auxvars[self.analysis]['hstphase'][ixs]
-        tv = self.slcs[dset].auxvars[self.analysis]['tv'][ixs]
-        x = self.slcs[dset].auxvars[self.analysis]['wavshift_pix'][ixs]
+        phi = self.slcs[dset]['auxvars'][self.analysis]['hstphase'][ixs]
+        tv = self.slcs[dset]['auxvars'][self.analysis]['tv'][ixs]
+        x = self.slcs[dset]['auxvars'][self.analysis]['wavshift_pix'][ixs]
         phiv = ( phi-np.mean( phi ) )/np.std( phi )
         xv = ( x-np.mean( x ) )/np.std( x )
         offset = np.ones( self.ndat[dset] )[ixs]
@@ -182,19 +182,24 @@ class WFC3SpecFitGP():
         syspars = self.syspars
         syspars['aRs'] = self.orbpars['aRs']
         syspars['b'] = self.orbpars['b']
-        syspars['incl'] = self.orbpars['incl']
-        jd = self.slcs[dset].jd[ixs]
-        flux = self.slcs[dset].lc_flux[self.lctype][:,self.chix][ixs]
-        uncs = self.slcs[dset].lc_uncs[self.lctype][:,self.chix][ixs]
+        try: # See if inclination has been provided directly
+            incl = self.orbpars['incl']
+        except: # otherwise, derive from impact parameter:
+            b = self.orbpars['b']
+            incl = np.rad2deg( np.arccos( b/syspars['aRs'] ) )
+        self.orbpars['incl'] = incl
+        jd = self.slcs[dset]['jd'][ixs]
+        flux = self.slcs[dset]['lc_flux'][self.lctype][:,self.chix][ixs]
+        uncs = self.slcs[dset]['lc_uncs'][self.lctype][:,self.chix][ixs]
         batpar, pmodel = self.GetBatmanObject( jd, dset, config )
         batpar.limb_dark = 'quadratic'
-        batpar.u = self.slcs[dset].ld['quad1d'][self.chix,:]
+        batpar.u = self.slcs[dset]['ld']['quad1d'][self.chix,:]
         batpar.a = self.orbpars['aRs'] # where do these orbpars come from?
         batpar.inc = self.orbpars['incl'] # we want them to be whatever whitelc fit had...
         ntrials = 15
         if self.syspars['tr_type']=='primary':
             batpar.limb_dark = 'quadratic'
-            batpar.u = self.slcs[dset].ld['quad1d'][self.chix,:]
+            batpar.u = self.slcs[dset]['ld']['quad1d'][self.chix,:]
             zstart = self.PolyFitPrimary( batpar, pmodel, B, flux, uncs, ntrials )
         elif self.syspars['tr_type']=='secondary':
             zstart = self.PolyFitSecondary( batpar, pmodel, B, flux, uncs, ntrials )
@@ -271,8 +276,8 @@ class WFC3SpecFitGP():
         self.keepixs[dset] = {}
         ixs0 = np.arange( self.ndat[dset] )
         scanixs = {}
-        scanixs['f'] = ixs0[self.slcs[dset].scandirs==1]
-        scanixs['b'] = ixs0[self.slcs[dset].scandirs==-1]
+        scanixs['f'] = ixs0[self.slcs[dset]['scandirs']==1]
+        scanixs['b'] = ixs0[self.slcs[dset]['scandirs']==-1]
         for k in self.scankeys[dset]:
             self.GetModelComponents( dset, parents, scanixs, k )
         return None
@@ -287,7 +292,7 @@ class WFC3SpecFitGP():
         mbundle for current visit, with initvals and evalmodel.
         """
         slcs = self.slcs[dset]
-        config = slcs.config
+        config = slcs['config']
         ixs = scanixs[scankey]
         ixs, pfit0 = self.PolyFitCullixs( dset, config, ixs )
         self.keepixs[dset][scankey] = ixs
@@ -309,7 +314,7 @@ class WFC3SpecFitGP():
             self.initvals[EcDepthk] = self.syspars['EcDepth'][0]
         else:
             pdb.set_trace()
-        batpar, pmodel = self.GetBatmanObject( slcs.jd[ixs], dset, slcs.config )
+        batpar, pmodel = self.GetBatmanObject( slcs['jd'][ixs], dset, slcs['config'] )
         z = self.GPLogLike( dset, parents, batpar, pmodel, ixs, idkey )
         loglikename = 'loglike_{0}'.format( idkey )
         self.mbundle[loglikename] = z['loglikefunc']
@@ -335,7 +340,12 @@ class WFC3SpecFitGP():
             #batpar.t_secondary = self.syspars['Tmid'][0]
             batpar.t_secondary = self.Tmids[dset]  # this is the white MLE value
         batpar.a = self.orbpars['aRs']
-        batpar.inc = self.orbpars['incl']
+        #batpar.inc = self.orbpars['incl']
+        try: # See if inclination has been provided directly
+            batpar.inc = self.orbpars['incl']
+        except: # otherwise, derive from impact parameter:
+            b = self.orbpars['b']
+            batpar.inc = np.rad2deg( np.arccos( b/batpar.a ) )
         batpar.ecc = self.syspars['ecc'][0] # in future, ecc and w could be in orbparrs
         batpar.w = self.syspars['omega'][0]
         batpar.limb_dark = self.ldbat
@@ -429,10 +439,10 @@ class WFC3SpecFitGP():
 
     def GPLogLike( self, dset, parents, batpar, pmodel, ixs, idkey ):
         slcs = self.slcs[dset]
-        jd = slcs.jd[ixs]
-        tv = slcs.auxvars[self.analysis]['tv'][ixs]
-        flux = slcs.lc_flux[self.lctype][ixs,self.chix]
-        uncs = slcs.lc_uncs[self.lctype][ixs,self.chix]
+        jd = slcs['jd'][ixs]
+        tv = slcs['auxvars'][self.analysis]['tv'][ixs]
+        flux = slcs['lc_flux'][self.lctype][ixs,self.chix]
+        uncs = slcs['lc_uncs'][self.lctype][ixs,self.chix]
         lintcoeffs = UR.LinTrend( jd, tv, flux )
         ldbat = self.ldbat
         #pars = {}
@@ -489,7 +499,7 @@ class WFC3SpecFitGP():
         gp.cfunc = self.gpkernels[dset]
         gp.mpars = {}
         gpinputs = self.gpinputs[dset]
-        auxvars = self.slcs[dset].auxvars[self.analysis]
+        auxvars = self.slcs[dset]['auxvars'][self.analysis]
 
         cond1 = ( gp.cfunc==kernels.sqexp_invL_ard )
         cond2 = ( gp.cfunc==kernels.matern32_invL_ard )
@@ -527,7 +537,7 @@ class WFC3SpecFitGP():
         logiLlabels_local = []
         for i in self.gpinputs[dset]:
             k, label = UR.GetVarKey( i )
-            v = self.slcs[dset].auxvars[self.analysis][k]
+            v = self.slcs[dset]['auxvars'][self.analysis][k]
             vs = ( v-np.mean( v ) )/np.std( v )
             pname = 'logiL{0}'.format( label )
             mlabel = '{0}_{1}'.format( pname, idkey )

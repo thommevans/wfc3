@@ -348,8 +348,14 @@ class WFC3SpecFitGP():
             batpar.inc = np.rad2deg( np.arccos( b/batpar.a ) )
         batpar.ecc = self.syspars['ecc'][0] # in future, ecc and w could be in orbparrs
         batpar.w = self.syspars['omega'][0]
-        batpar.limb_dark = self.ldbat
-        batpar.u = self.ldpars[config][self.chix,:]
+        if self.syspars['tr_type']=='secondary':
+            batpar.fp = self.syspars['EcDepth']
+            batpar.t_secondary = self.syspars['Tmid'][0]
+            batpar.limb_dark = 'uniform'
+            batpar.u = []
+        else:
+            batpar.limb_dark = self.ldbat
+            batpar.u = self.ldpars[config][self.chix,:]
         pmodel = batman.TransitModel( batpar, jd, transittype=self.syspars['tr_type'] )
         # Following taken from here:
         # https://www.cfa.harvard.edu/~lkreidberg/batman/trouble.html#help-batman-is-running-really-slowly-why-is-this

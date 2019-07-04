@@ -2139,8 +2139,11 @@ class WFC3WhiteFitLM():
                                                                    data[ixsdk,0][ixs], \
                                                                    transittype=tt )
                         ixsd[dset][k] = ixsdk[ixs]
+                        ixsmg[k] = ixsmzk[ixs]
                         ixsmz += [ ixsmzk[ixs] ] #testing
                         ndat += len( residsk )
+                        # ixsmg needs to be updated here to be compatiable with ixsdk[ixs]
+                        # but what is ixsmg? it's the indices split between scandirs
                     ixsmz = np.concatenate( ixsmz ) #testing
                     ixs0 = np.argsort( ixsmz ) #testing
                     ixsm[dset] = ixsmz[ixs0] #testing

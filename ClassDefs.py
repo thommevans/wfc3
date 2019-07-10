@@ -50,6 +50,7 @@ class WFC3SpecFitGP():
         self.EcDepth_shared = True
     
     def GenerateMBundle( self ):
+        self.CheckScandirsPresent()
         parents = {}
         self.mbundle = {}
         self.initvals = {}
@@ -1095,6 +1096,7 @@ class WFC3SpecFitLM():
             pars_fit = self.RunTrials( self.ntrials )
             mfit = self.CalcModel( pars_fit )
             ffit = mfit['psignal']*mfit['ttrend']
+            # WORKING
             ixsmg = {}
             for dset in self.dsets:
                 scandirs = self.slcs[dset]['scandirs'][ixsm[dset]]
@@ -1234,7 +1236,11 @@ class WFC3SpecFitLM():
         batpar.ecc = self.syspars['ecc'][0]
         batpar.w = self.syspars['omega'][0]
         batpar.a = self.orbpars['aRs']
-        batpar.inc = self.orbpars['incl']
+        try: # See if inclination has been provided directly
+            batpar.inc = self.orbpars['incl']
+        except: # otherwise, derive from impact parameter:
+            b = self.orbpars['b']
+            batpar.inc = np.rad2deg( np.arccos( b/batpar.a ) )
         self.ppar_init = {}
         if self.syspars['tr_type']=='primary':
             batpar.rp = self.wmles[dset]['RpRs']
@@ -2104,6 +2110,7 @@ class WFC3WhiteFitLM():
         finished = False
         nattempts = 0
         nattempts_max = 5
+        #pdb.set_trace()
         while ( finished==False )*( nattempts<nattempts_max ):
             ixsd = self.data_ixs.copy()
             ixsm = self.keepixs.copy()
@@ -2742,7 +2749,22 @@ class WFC3WhiteFitGP():
         self.RpRs_shared = True
         self.EcDepth_shared = True        
 
-        
+    def CheckScandirsPresent( self ):
+        # Check the specified scan directions are present:
+        for dset in self.dsets:
+            ixsc = self.cullixs[dset]         
+            for k in self.scankeys[dset]:
+                if k=='f':
+                    ixs = self.wlcs[dset]['scandirs'][ixsc]==1
+                elif k=='b':
+                    ixs = self.wlcs[dset]['scandirs'][ixsc]==-1
+                else:
+                    pdb.set_trace()
+                if ixs.max()==False:
+                    print( '\nscankey {0} specified but not present in dataset {1}'\
+                           .format( k, dset ) )
+        return None
+    
     def GenerateMBundle( self ):
         """
         TODO - Rename this GenerateGPMBundle()...
@@ -2751,6 +2773,7 @@ class WFC3WhiteFitGP():
         to define parameters specific to each visit.
         """
         self.dsets = list( self.wlcs.keys() )
+        self.CheckScandirsPresent()
         # Define the model parameters shared across all lightcurves:
         print( '\n{0}\nGenerating model parameters:'.format( 50*'#' ) )
         parents = {}
@@ -2991,6 +3014,7 @@ class WFC3WhiteFitGP():
         scanixs['f'] = ixsc[wlc['scandirs'][ixsc]==1]
         scanixs['b'] = ixsc[wlc['scandirs'][ixsc]==-1]
         keepixs_final = []
+        self.evalmodels[dset] = {}        
         for k in self.scankeys[dset]:
             self.GetModelComponents( dset, parents, scanixs, k, Tmid )
             keepixs_final += [ self.evalmodels[dset][k][1] ]
@@ -3008,7 +3032,7 @@ class WFC3WhiteFitGP():
         combination, including the log-likelihood function. Returns complete 
         mbundle for current visit, with initvals and evalmodel.
         """
-        self.evalmodels[dset] = {}
+        self.evalmodels[dset][scankey] = {}
         wlc = self.wlcs[dset]
         #idkey = '{0}{1}'.format( wlc.dsetname, scankey ) # this was what it was...
         idkey = '{0}{1}'.format( dset, scankey ) # haven't tested yet but should be right?
@@ -4067,6 +4091,7 @@ class WFC3SpecLightCurves():
         ixsc = whitefit['keepixs_final'][self.dsetname]
         self.jd = spec1d['jd'][ixsc]
         self.scandirs = spec1d['scandirs'][ixsc]
+        pdb.set_trace()
         # Copy auxvars, cull, split into f and b to start:
         self.auxvars = {}
         for k in list( spec1d['spectra'].keys() ):
@@ -4087,6 +4112,7 @@ class WFC3SpecLightCurves():
         self.MakeBasic( ecounts1d[ixsc,:] )
         self.MakeShiftStretch( wavmicr, ecounts1d[ixsc,:], wfitarrs )
         self.UnpackArrays()
+        pdb.set_trace()
         return None
     
     
@@ -4520,12 +4546,12 @@ class WFC3WhiteLightCurve():
 
     # Since WhiteLC objects are now saved as simple dictionaries,
     # this routine is probably redundant...
-    def LoadFromFile( self ):        
-        ifile = open( self.lc_fpath, 'rb' )
-        self = pickle.load( ifile )
-        ifile.close()
-        print( '\nLoaded:{0}\n'.format( self.lc_fpath ) )
-        return self
+    #def LoadFromFile( self ):        
+    #    ifile = open( self.lc_fpath, 'rb' )
+    #    self = pickle.load( ifile )
+    #    ifile.close()
+    #    print( '\nLoaded:{0}\n'.format( self['lc_fpath'] ) )
+    #    return self
 
 
 

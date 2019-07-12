@@ -49,7 +49,23 @@ class WFC3SpecFitGP():
         self.RpRs_shared = True
         self.EcDepth_shared = True
     
+    def CheckScandirsPresent( self ):
+        # Check the specified scan directions are present:
+        for dset in self.dsets:
+            for k in self.scankeys[dset]:
+                if k=='f':
+                    ixs = self.slcs[dset]['scandirs']==1
+                elif k=='b':
+                    ixs = self.slcs[dset]['scandirs']==-1
+                else:
+                    pdb.set_trace()
+                if ixs.max()==False:
+                    print( '\nscankey {0} specified but not present in dataset {1}'\
+                           .format( k, dset ) )
+        return None
+    
     def GenerateMBundle( self ):
+        self.dsets = list( self.slcs.keys() )
         self.CheckScandirsPresent()
         parents = {}
         self.mbundle = {}
@@ -159,6 +175,7 @@ class WFC3SpecFitGP():
                     self.initvals[EcDepthlab] = self.syspars['EcDepth'][0]
             else:
                 pdb.set_trace() # shouldn't happen
+            #pdb.set_trace()
             self.GPMBundle( k, parentsk )
         return None
 
@@ -279,6 +296,7 @@ class WFC3SpecFitGP():
         scanixs = {}
         scanixs['f'] = ixs0[self.slcs[dset]['scandirs']==1]
         scanixs['b'] = ixs0[self.slcs[dset]['scandirs']==-1]
+        #pdb.set_trace()
         for k in self.scankeys[dset]:
             self.GetModelComponents( dset, parents, scanixs, k )
         return None
@@ -463,7 +481,7 @@ class WFC3SpecFitGP():
             parents['a1'] = pyhm.Uniform( a1k, lower=-0.1, upper=0.1 )
             self.mbundle[a1k] = parents['a1']
             self.initvals[a1k] = lintcoeffs[1]
-        zgp = self.PrepGP( dset, ixs, idkey )        
+        zgp = self.PrepGP( dset, ixs, idkey )
         for k in zgp['gpvars'].keys():
             parents[k] = zgp['gpvars'][k]
         n0 = 30
@@ -4091,7 +4109,6 @@ class WFC3SpecLightCurves():
         ixsc = whitefit['keepixs_final'][self.dsetname]
         self.jd = spec1d['jd'][ixsc]
         self.scandirs = spec1d['scandirs'][ixsc]
-        pdb.set_trace()
         # Copy auxvars, cull, split into f and b to start:
         self.auxvars = {}
         for k in list( spec1d['spectra'].keys() ):
@@ -4112,7 +4129,6 @@ class WFC3SpecLightCurves():
         self.MakeBasic( ecounts1d[ixsc,:] )
         self.MakeShiftStretch( wavmicr, ecounts1d[ixsc,:], wfitarrs )
         self.UnpackArrays()
-        pdb.set_trace()
         return None
     
     

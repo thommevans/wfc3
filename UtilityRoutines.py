@@ -416,7 +416,8 @@ def DefineLogiLprior( z, vark, label, priortype='uniform' ):
     if priortype=='uniform':
         nrupp = 100
         zrange = z.max()-z.min()
-        dz = np.median( np.abs( np.diff( z ) ) )
+        #dz = np.median( np.abs( np.diff( z ) ) )
+        dz = np.min( np.abs( np.diff( z ) ) )
         #zlow = -10
         zlow = np.log( 1./( nrupp*zrange ) )
         if vark!='t':

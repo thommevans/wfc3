@@ -12,6 +12,22 @@ def rvFunc( t, a1, a2 ):
 def r0Func( torb, rvt, a3, a4, a5 ):
     return 1 + a3*np.exp( -( torb-a5 )/(a4*rvt) )
 
+def DERampNoBase( t, torb, pars ):
+    """
+    Implementation of the double-exponential ramp model for WFC3 systematics.
+    Taken from Eq 1-3 of de Wit et al (2018).
+    """
+    a1 = pars[0]
+    a2 = pars[1]
+    a3 = pars[2]
+    a4 = pars[3]
+    a5 = pars[4]
+    rvt = rvFunc( t, a1, a2 )
+    r0t = r0Func( torb, rvt, a3, a4, a5 )
+    ttr = np.ones( t.size )
+    return ttr, rvt*r0t
+
+
 def DERampLinBase( t, torb, pars ):
     """
     Implementation of the double-exponential ramp model for WFC3 systematics.

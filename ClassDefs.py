@@ -2134,13 +2134,15 @@ class WFC3WhiteFitLM():
             ixsm = self.keepixs.copy()
             ixsp = self.par_ixs
             batp = self.batpars
-            #pdb.set_trace()
             data = self.data
             ncull = 0
             ndat = 0
             print( '\nRunning initial fit for full model:' )
             self.pars_init = self.RunTrials( 5 )
             print( 'Done.\n' )
+            # BE CAREFUL: I don't think this culling routine is actually
+            # working as it's strictly supposed to yet. Definitely
+            # requires more testing...
             for g in range( niter ):
                 pars_fit = self.RunTrials( self.ntrials )
                 mfit = self.CalcModel( pars_fit )
@@ -2148,12 +2150,12 @@ class WFC3WhiteFitLM():
                 ixsmg = {}
                 for dset in self.dsets:
                     scandirs = self.wlcs[dset]['scandirs'][ixsm[dset]]
-                    ixsmg['f'] = ixsm[dset][scandirs==1] #testing
-                    ixsmg['b'] = ixsm[dset][scandirs==-1] #testing
-                    ixsmz = [] #testing
+                    ixsmg['f'] = ixsm[dset][scandirs==1] 
+                    ixsmg['b'] = ixsm[dset][scandirs==-1]
+                    ixsmz = []
                     for k in self.scankeys[dset]:
                         ixsdk = ixsd[dset][k]
-                        ixsmzk = ixsmg[k] #testing
+                        ixsmzk = ixsmg[k]
                         idkey = '{0}{1}'.format( dset, k )
                         residsk = self.data[ixsdk,3]-ffit[ixsdk]
                         uncsk = self.data[ixsdk,4]
@@ -2165,13 +2167,11 @@ class WFC3WhiteFitLM():
                                                                    transittype=tt )
                         ixsd[dset][k] = ixsdk[ixs]
                         ixsmg[k] = ixsmzk[ixs]
-                        ixsmz += [ ixsmzk[ixs] ] #testing
+                        ixsmz += [ ixsmzk[ixs] ]
                         ndat += len( residsk )
-                        # ixsmg needs to be updated here to be compatiable with ixsdk[ixs]
-                        # but what is ixsmg? it's the indices split between scandirs
-                    ixsmz = np.concatenate( ixsmz ) #testing
-                    ixs0 = np.argsort( ixsmz ) #testing
-                    ixsm[dset] = ixsmz[ixs0] #testing
+                    ixsmz = np.concatenate( ixsmz )
+                    ixs0 = np.argsort( ixsmz )
+                    ixsm[dset] = ixsmz[ixs0]
                 print( 'Iteration={0:.0f}, Nculled={1:.0f}'.format( g+1, ncull ) )
                 self.pars_init = pars_fit
             if ncull<0.1*ndat:

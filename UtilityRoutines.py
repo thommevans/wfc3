@@ -7,9 +7,24 @@ import numexpr
 
 
 def rvFunc( t, a1, a2 ):
+    """
+    Within the context of the detector charge-trapping model,
+    a reasonable physical constraint is a1>0 and a2<0. These
+    restrictions are not applied within this routine, but can 
+    be easily be built into whatever optimization metric is used 
+    for determining the unknown parameters of the ramp model.
+    """
     return 1 + a1*np.exp( -a2*t )
 
 def r0Func( torb, rvt, a3, a4, a5 ):
+    """
+    Within the context of the detector charge-trapping model, 
+    a reasonable physical constraint is a3>0, a4<0, and 
+    a5<torb.min(). These restrictions are not applied within 
+    this routine, but can be easily be built into whatever 
+    optimization metric is used for determining the unknown 
+    parameters of the ramp model.
+    """
     return 1 + a3*np.exp( -( torb-a5 )/(a4*rvt) )
 
 def DERampNoBase( t, torb, pars ):

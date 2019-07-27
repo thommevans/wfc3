@@ -4101,8 +4101,7 @@ class WFC3SpecLightCurves():
             self.cmode[j] = flux[ixsj]/psignalj
         return None
 
-    
-    
+        
     def PrepSpecLCs( self, spec1d, whitefit ):
         # Get ixs to be used for each scan direction:
         self.scankeys = list( whitefit['bestfits'][self.dsetname].keys() )
@@ -4583,7 +4582,7 @@ class WFC3Spectra():
         self.ntrim_edge = None
         self.apradius = None
         self.maskradius = None
-        self.smoothing_fwhm = None
+        #self.smoothing_fwhm = None
         self.trim_disp_ixs = []
         self.trim_crossdisp_ixs = []
         self.ss_dispbound_ixs = []
@@ -4598,17 +4597,20 @@ class WFC3Spectra():
 
     
     def Extract1DSpectra( self ):
-        if ( self.smoothing_fwhm is None )+( self.smoothing_fwhm==0 ):
-            self.smoothing_str = 'unsmoothed'
-            self.smoothing_fwhm = 0.0
-        else:
-            self.smoothing_str = 'smooth{0:.2f}pix'.format( self.smoothing_fwhm )
+        # Smoothing FWHM of 4 pixels implemented for cross-correlation
+        # purposes by default.
+        #if ( self.smoothing_fwhm is None )+( self.smoothing_fwhm==0 ):
+        #    self.smoothing_str = 'unsmoothed'
+        #    self.smoothing_fwhm = 0.0
+        #else:
+        #    self.smoothing_str = 'smooth{0:.2f}pix'.format( self.smoothing_fwhm )
         if self.config=='G141':
             self.filter_str = 'G141'
         elif self.config=='G102':
             self.filter_str = 'G102'
         else:
             pdb.set_trace()
+        self.rkeys = [ 'raw', 'rlast', 'rdiff' ]
         ecounts2d = self.ProcessIma()
         # Having problems with ZapBadPix2D, mainly with it seeming
         # to do a bad job of flagging static bad pixels that
@@ -4990,7 +4992,7 @@ class WFC3Spectra():
             ecounts2d[kzap] = ecounts2dk # testing
             ecounts2d[kzap][c1:c2+1,d1:d2+1,:] = zk[0] # testing
             self.spectra[kzap]['auxvars'] = self.spectra[k]['auxvars'].copy()
-        self.rkeys = list( self.spectra.keys() )
+        #self.rkeys = list( self.spectra.keys() )
         # TODO: Save a pkl file containing the images along with
         # the bad pixel maps etc; as done previously.
         # e.g. SaveRdiffFrames( self, zrdiff )
@@ -5004,8 +5006,7 @@ class WFC3Spectra():
         self.NframesNscanNdisp()
         self.tstarts = []
         self.exptimes = []
-        self.spectra = { 'raw':{}, 'rlast':{}, 'rdiff':{} }
-        self.rkeys = list( self.spectra.keys() )        
+        self.spectra = {} #{ 'raw':{}, 'rlast':{}, 'rdiff':{} }
         self.TrimBox()
         self.BGBox()
         print( '\n{0}\nReading in raw ima files:\n'.format( 50*'#' ) )
@@ -5013,9 +5014,7 @@ class WFC3Spectra():
         ecounts2d = {}
         for k in self.rkeys:
             ecounts2d[k] = []
-            self.spectra[k]['scandirs'] = []
-            self.spectra[k]['auxvars'] = {}
-            self.spectra[k]['auxvars']['bg_ppix'] = []
+            self.spectra[k] = { 'scandirs':[], 'auxvars':{}, 'bg_ppix':[] }
         self.scandirs = []
         ima_fpaths = []
         for i in range( self.nframes ):

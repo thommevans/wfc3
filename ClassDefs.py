@@ -4699,19 +4699,23 @@ class WFC3Spectra():
         return ix0, ix1
         
     def ShiftStretch( self ):
-        if self.ss_dispbound_ixs is 'speclc_range':
-            d1, d2 = self.ApproxSSDispboundIxs()
-        else:
-            d1, d2 = self.ss_dispbound_ixs
+        #pdb.set_trace()
+        #if self.ss_dispbound_ixs is 'speclc_range':
+        #    d1, d2 = self.ApproxSSDispboundIxs()
+        #else:
+        #    d1, d2 = self.ss_dispbound_ixs
         dpix_max = 1
         dwav_max = dpix_max*self.dispersion_micrppix
         nshifts = int( np.round( 2*dpix_max*(1e3)+1 ) ) # 0.001 pix
-        fwhm_e1d = 4. # stdv of smoothing kernel in dispersion pixels
+        #fwhm_e1d = 4. # stdv of smoothing kernel in dispersion pixels
+        fwhm_e1d = self.smoothing_fwhm
         sig_e1d = fwhm_e1d/2./np.sqrt( 2.*np.log( 2 ) )
         #for k in ['rdiff_zap']:#self.rkeys:
         for k in self.rkeys:
-            print( '\n{0}\nComputing shift+stretch for {1}:'.format( 50*'#', k ) )
             wav0 = self.spectra[k]['wavmicr']
+            d1 = np.arange( wav0.size )[np.argmin( np.abs( wav0-self.ss_dispbound_wav[0] ) )]
+            d2 = np.arange( wav0.size )[np.argmin( np.abs( wav0-self.ss_dispbound_wav[1] ) )]
+            print( '\n{0}\nComputing shift+stretch for {1}:'.format( 50*'#', k ) )
             x0 = np.arange( wav0.size )
             e1d0 = self.spectra[k]['ecounts1d'][-1,:]
             e1d0_smth = scipy.ndimage.filters.gaussian_filter1d( e1d0, sig_e1d )
@@ -4722,7 +4726,7 @@ class WFC3Spectra():
                 e1di = self.spectra[k]['ecounts1d'][i,:]
                 if e1di.max()>0:
                     e1di_smth = scipy.ndimage.filters.gaussian_filter1d( e1di, sig_e1d )
-                    cc = self.CrossCorrSol( x0, e1di_smth, x0, e1d0_smth, \
+                    cc = self.CrossCorrSol( x0, e1di_smth, x0, e1d0_smth, d1, d2, \
                                             dx_max=dpix_max, nshifts=2*dpix_max*1000 )
                     wshifts_pix[i] = cc[0]
                     vstretches[i] = cc[1]
@@ -4735,10 +4739,12 @@ class WFC3Spectra():
         return None
 
     
-    def CrossCorrSol( self, x0, ymeas, xtarg, ytarg, dx_max=1, nshifts=1000 ):
+    def CrossCorrSol( self, x0, ymeas, xtarg, ytarg, ix0, ix1, dx_max=1, nshifts=1000 ):
         """
         This has now been moved to ClassDefs.py.
         """
+        #print( 'aaaaa', ix0, ix1 )
+        #pdb.set_trace()
         dw = np.median( np.diff( xtarg ) )
         wlow = x0.min()-dx_max-dw
         wupp = x0.max()+dx_max+dw
@@ -4761,10 +4767,11 @@ class WFC3Spectra():
         A = np.ones( [ ymeas.size, 2 ] )
         b = np.reshape( ymeas/ymeas.max(), [ ymeas.size, 1 ] )
         ss_fits = []
-        if self.ss_dispbound_ixs is 'speclc_range':
-            ix0, ix1 = self.ApproxSSDispboundIxs()
-        else:
-            ix0, ix1 = self.ss_dispbound_ixs
+        #if self.ss_dispbound_ixs is 'speclc_range':
+        #    ix0, ix1 = self.ApproxSSDispboundIxs()
+        #else:
+        #    ix0, ix1 = self.ss_dispbound_ixs
+        #ix0, ix1 = self.wavsol_dispbound_ixs
         for i in range( nshifts ):
             # Assuming the default x-solution is x0, shift the model
             # array by dx. If this provides a good match to the data,
@@ -4864,9 +4871,9 @@ class WFC3Spectra():
             #cc = UR.CrossCorrSol( wavsol0, e1d_smth, wstar, \
             #                                   ystar_smth, dx_max=dwav_max, \
             #                                   nshifts=nshifts )
-            cc = self.CrossCorrSol( wavsol0, e1d_smth, wstar, \
-                                    ystar_smth, dx_max=dwav_max, \
-                                    nshifts=nshifts )
+            ix0, ix1 = self.wavsol_dispbound_ixs
+            cc = self.CrossCorrSol( wavsol0, e1d_smth, wstar, ystar_smth, \
+                                    ix0, ix1, dx_max=dwav_max, nshifts=nshifts )
             wshift = cc[0]
             vstretch = cc[1]
             wavmicr0 = wavsol0+wshift
@@ -5008,7 +5015,6 @@ class WFC3Spectra():
         self.exptimes = []
         self.spectra = {}
         for k in self.rkeys: self.spectra[k] = {}
-        #self.rkeys = list( self.spectra.keys() )        
         self.TrimBox()
         self.BGBox()
         print( '\n{0}\nReading in raw ima files:\n'.format( 50*'#' ) )
@@ -5144,7 +5150,8 @@ class WFC3Spectra():
 
     
     def NframesNscanNdisp( self ):
-        self.nframes = len( self.ima_fpaths )         
+        self.nframes = len( self.ima_fpaths )
+        #self.nframes = 150
         hdu = pyfits.open( self.ima_fpaths[0] )
         self.nscan, self.ndisp = np.shape( hdu[1].data )
         return None

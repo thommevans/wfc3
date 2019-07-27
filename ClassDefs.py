@@ -4609,6 +4609,8 @@ class WFC3Spectra():
             self.filter_str = 'G102'
         else:
             pdb.set_trace()
+        #self.rkeys = [ 'raw', 'rlast', 'rdiff' ]
+        self.rkeys = [ 'raw' ]#, 'rlast', 'rdiff' ]
         ecounts2d = self.ProcessIma()
         # Having problems with ZapBadPix2D, mainly with it seeming
         # to do a bad job of flagging static bad pixels that
@@ -4990,7 +4992,7 @@ class WFC3Spectra():
             ecounts2d[kzap] = ecounts2dk # testing
             ecounts2d[kzap][c1:c2+1,d1:d2+1,:] = zk[0] # testing
             self.spectra[kzap]['auxvars'] = self.spectra[k]['auxvars'].copy()
-        self.rkeys = list( self.spectra.keys() )
+        #self.rkeys = list( self.spectra.keys() )
         # TODO: Save a pkl file containing the images along with
         # the bad pixel maps etc; as done previously.
         # e.g. SaveRdiffFrames( self, zrdiff )
@@ -5005,7 +5007,7 @@ class WFC3Spectra():
         self.tstarts = []
         self.exptimes = []
         self.spectra = { 'raw':{}, 'rlast':{}, 'rdiff':{} }
-        self.rkeys = list( self.spectra.keys() )        
+        #self.rkeys = list( self.spectra.keys() )        
         self.TrimBox()
         self.BGBox()
         print( '\n{0}\nReading in raw ima files:\n'.format( 50*'#' ) )

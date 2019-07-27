@@ -5006,7 +5006,8 @@ class WFC3Spectra():
         self.NframesNscanNdisp()
         self.tstarts = []
         self.exptimes = []
-        self.spectra = { 'raw':{}, 'rlast':{}, 'rdiff':{} }
+        self.spectra = {}
+        for k in self.rkeys: self.spectra[k] = {}
         #self.rkeys = list( self.spectra.keys() )        
         self.TrimBox()
         self.BGBox()

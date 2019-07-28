@@ -4122,6 +4122,8 @@ class WFC3SpecLightCurves():
         wflux = whitefit['wlcs'][self.dsetname]['whitelc'][self.analysis]['flux']
         self.MakeCommonMode( wfitarrs, wflux[ixsc] )
         wavmicr = spec1d['spectra'][self.analysis]['wavmicr']
+        print( 'CHECK ', self.auxvars[self.analysis].keys() )
+        pdb.set_trace()
         ecounts1d = spec1d['spectra'][self.analysis]['ecounts1d']
         self.GetChannels( wavmicr )
         self.lc_flux = { 'raw':{}, 'cm':{}, 'ss':{} }
@@ -4205,13 +4207,16 @@ class WFC3SpecLightCurves():
         self.ss_wavshift_pix = {}
         self.ss_vstretch = {}
         self.ss_enoise = {}
-        if self.ss_dispbound_ixs is 'speclc_range':
-            nwav = int( wavmicr.size )
+        nwav = int( wavmicr.size )
+        if self.ss_dispbound_wav is 'speclc_range':
             dwav0 = np.abs( wavmicr-self.wavedgesmicr[0][0] )
             dwav1 = np.abs( wavmicr-self.wavedgesmicr[-1][1] )
-            ix0 = np.arange( nwav )[np.argmin( dwav0 )]
-            ix1 = np.arange( nwav )[np.argmin( dwav1 )]
-            self.ss_dispbound_ixs = [ ix0, ix1 ]
+        else:
+            dwav0 = np.abs( wavmicr-self.ss_dispbound_wav[0] )
+            dwav1 = np.abs( wavmicr-self.ss_dispbound_wav[1] )
+        ix0 = np.arange( nwav )[np.argmin( dwav0 )]
+        ix1 = np.arange( nwav )[np.argmin( dwav1 )]
+        self.ss_dispbound_ixs = [ ix0, ix1 ]
         for j in self.scankeys:
             ixsj = ( self.scandirs==UR.ScanVal( j ) )
             ecounts1dj = ecounts1d[ixsj,:]
@@ -4609,8 +4614,7 @@ class WFC3Spectra():
             self.filter_str = 'G102'
         else:
             pdb.set_trace()
-        self.rkeys = [ 'raw', 'rlast', 'rdiff' ]
-        #self.rkeys = [ 'raw' ]
+        self.rkeys = [ 'raw', 'rlast', 'rdiff' ] # the fundamental reduction keys
         ecounts2d = self.ProcessIma()
         # Having problems with ZapBadPix2D, mainly with it seeming
         # to do a bad job of flagging static bad pixels that
@@ -4963,6 +4967,7 @@ class WFC3Spectra():
                 self.spectra[k]['auxvars'] = self.spectra[k]['auxvars'].copy()
             else:
                 continue
+        self.rkeys = list( self.spectra.keys() ) # ensure zapped keys included
         return None
 
     
@@ -4989,6 +4994,7 @@ class WFC3Spectra():
         # TODO: Save a pkl file containing the images along with
         # the bad pixel maps etc; as done previously.
         # e.g. SaveRdiffFrames( self, zrdiff )
+        self.rkeys = list( self.spectra.keys() ) # ensure zapped keys included
         return ecounts2d
         
     

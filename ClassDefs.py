@@ -4690,27 +4690,14 @@ class WFC3Spectra():
         ixs = ( x>=self.trim_disp_ixs[0] )*( x<=self.trim_disp_ixs[1] )*( e1d>0.5*e1d.max() )
         ix0 = x[ixs][0]
         ix1 = x[ixs][-1]
-        #plt.ioff()
-        #plt.plot( x, e1d, '-k' )
-        #plt.plot( x[ixs], e1d[ixs], '.r' )
-        #plt.savefig( 'delete.pdf' )
-        #print( 'SHIFTSTRETCH TEST' )
-        #pdb.set_trace()
         return ix0, ix1
         
     def ShiftStretch( self ):
-        #pdb.set_trace()
-        #if self.ss_dispbound_ixs is 'speclc_range':
-        #    d1, d2 = self.ApproxSSDispboundIxs()
-        #else:
-        #    d1, d2 = self.ss_dispbound_ixs
         dpix_max = 1
         dwav_max = dpix_max*self.dispersion_micrppix
         nshifts = int( np.round( 2*dpix_max*(1e3)+1 ) ) # 0.001 pix
-        #fwhm_e1d = 4. # stdv of smoothing kernel in dispersion pixels
         fwhm_e1d = self.smoothing_fwhm
         sig_e1d = fwhm_e1d/2./np.sqrt( 2.*np.log( 2 ) )
-        #for k in ['rdiff_zap']:#self.rkeys:
         for k in self.rkeys:
             wav0 = self.spectra[k]['wavmicr']
             d1 = np.arange( wav0.size )[np.argmin( np.abs( wav0-self.ss_dispbound_wav[0] ) )]
@@ -4718,16 +4705,22 @@ class WFC3Spectra():
             print( '\n{0}\nComputing shift+stretch for {1}:'.format( 50*'#', k ) )
             x0 = np.arange( wav0.size )
             e1d0 = self.spectra[k]['ecounts1d'][-1,:]
-            e1d0_smth = scipy.ndimage.filters.gaussian_filter1d( e1d0, sig_e1d )
+            if sig_e1d!=0:
+                e1d0_smth = scipy.ndimage.filters.gaussian_filter1d( e1d0, sig_e1d )
+            else:
+                e1d0_smth = e1d0
             wshifts_pix = np.zeros( self.nframes )
             vstretches = np.zeros( self.nframes )
             for i in range( self.nframes ):
                 print( '{0} ... image {1} of {2}'.format( k, i+1, self.nframes ) )
                 e1di = self.spectra[k]['ecounts1d'][i,:]
                 if e1di.max()>0:
-                    e1di_smth = scipy.ndimage.filters.gaussian_filter1d( e1di, sig_e1d )
-                    cc = self.CrossCorrSol( x0, e1di_smth, x0, e1d0_smth, d1, d2, \
-                                            dx_max=dpix_max, nshifts=2*dpix_max*1000 )
+                    if sig_e1d!=0:
+                        e1di_smth = scipy.ndimage.filters.gaussian_filter1d( e1di, sig_e1d )
+                    else:
+                        e1di_smth = e1di
+                    cc = self.CrossCorrSol( x0, e1di_smth, x0.copy(), e1d0_smth.copy(), d1, d2, \
+                                            dx_max=dpix_max, nshifts=2*dpix_max*1000+1 )
                     wshifts_pix[i] = cc[0]
                     vstretches[i] = cc[1]
                 else:
@@ -4741,10 +4734,9 @@ class WFC3Spectra():
     
     def CrossCorrSol( self, x0, ymeas, xtarg, ytarg, ix0, ix1, dx_max=1, nshifts=1000 ):
         """
-        This has now been moved to ClassDefs.py.
+        The mapping is: [ x0-shift, ymeas ] <--> [ xtarg, ytarg ]
+        [ix0,ix1] are the indices defining where to compute residuals along dispersion axis.
         """
-        #print( 'aaaaa', ix0, ix1 )
-        #pdb.set_trace()
         dw = np.median( np.diff( xtarg ) )
         wlow = x0.min()-dx_max-dw
         wupp = x0.max()+dx_max+dw
@@ -4767,16 +4759,12 @@ class WFC3Spectra():
         A = np.ones( [ ymeas.size, 2 ] )
         b = np.reshape( ymeas/ymeas.max(), [ ymeas.size, 1 ] )
         ss_fits = []
-        #if self.ss_dispbound_ixs is 'speclc_range':
-        #    ix0, ix1 = self.ApproxSSDispboundIxs()
-        #else:
-        #    ix0, ix1 = self.ss_dispbound_ixs
-        #ix0, ix1 = self.wavsol_dispbound_ixs
+        diffsarr = []
         for i in range( nshifts ):
             # Assuming the default x-solution is x0, shift the model
             # array by dx. If this provides a good match to the data,
             # it means that the default x-solution x0 is off by dx.
-            ytarg_shifted_i = interpf( x0 + shifts[i] )
+            ytarg_shifted_i = interpf( x0 - shifts[i] )
             A[:,1] = ytarg_shifted_i/ytarg_shifted_i.max()
             res = np.linalg.lstsq( A, b, rcond=None )
             c = res[0].flatten()
@@ -4785,7 +4773,9 @@ class WFC3Spectra():
             diffs = b.flatten() - fit.flatten()
             rms[i] = np.mean( diffs[ix0:ix1+1]**2. )
             ss_fits +=[ fit.flatten() ]
+            diffsarr += [ diffs ]
         ss_fits = np.row_stack( ss_fits )
+        diffsarr = np.row_stack( diffsarr )
         rms -= rms.min()
         offset = np.ones( nshifts )
         phi = np.column_stack( [ offset, shifts, shifts**2. ] )
@@ -4801,7 +4791,9 @@ class WFC3Spectra():
         vstretchesf = np.interp( shiftsf, shifts, vstretches )
         ixf = np.argmin( rmsf )
         ix = np.argmin( rms )
-        return shiftsf[ixf], vstretchesf[ixf], ss_fits[ix,:]
+        ix0 = ( shifts==0 )
+        diffs0 = diffsarr[ix0,:].flatten()
+        return shiftsf[ixf], vstretchesf[ixf], ss_fits[ix,:], diffsarr[ix,:], diffs0
 
 
     def LoadBTSettl( self ):
@@ -4876,7 +4868,7 @@ class WFC3Spectra():
                                     ix0, ix1, dx_max=dwav_max, nshifts=nshifts )
             wshift = cc[0]
             vstretch = cc[1]
-            wavmicr0 = wavsol0+wshift
+            wavmicr0 = wavsol0-wshift
             nl = np.arange( d1 )[::-1]
             nr = np.arange( self.ndisp-d2-1 )
             extl = wavmicr0[0]-(nl+1)*self.dispersion_micrppix
@@ -5150,8 +5142,8 @@ class WFC3Spectra():
 
     
     def NframesNscanNdisp( self ):
-        self.nframes = len( self.ima_fpaths )
-        #self.nframes = 150
+        #self.nframes = len( self.ima_fpaths )
+        self.nframes = 20#150
         hdu = pyfits.open( self.ima_fpaths[0] )
         self.nscan, self.ndisp = np.shape( hdu[1].data )
         return None

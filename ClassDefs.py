@@ -4609,8 +4609,8 @@ class WFC3Spectra():
             self.filter_str = 'G102'
         else:
             pdb.set_trace()
-        #self.rkeys = [ 'raw', 'rlast', 'rdiff' ]
-        self.rkeys = [ 'raw' ]#, 'rlast', 'rdiff' ]
+        self.rkeys = [ 'raw', 'rlast', 'rdiff' ]
+        #self.rkeys = [ 'raw' ]
         ecounts2d = self.ProcessIma()
         # Having problems with ZapBadPix2D, mainly with it seeming
         # to do a bad job of flagging static bad pixels that

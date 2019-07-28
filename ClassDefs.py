@@ -4673,14 +4673,7 @@ class WFC3Spectra():
         print( '\nSaved:\n{0}'.format( self.ecounts2d_fpath ) )
         return None
 
-    # Since Spectra objects are now saved as simple dictionaries,
-    # this routine is probably redundant...
-    #def LoadFromFile( self ):
-    #    ifile = open( self.spec1d_fpath, 'rb' )
-    #    self = pickle.load( ifile )
-    #    ifile.close()
-    #    return self
-
+    
     def ApproxSSDispboundIxs( self ):
         e1d = []
         for k in self.rkeys:
@@ -4691,7 +4684,8 @@ class WFC3Spectra():
         ix0 = x[ixs][0]
         ix1 = x[ixs][-1]
         return ix0, ix1
-        
+
+    
     def ShiftStretch( self ):
         dpix_max = 1
         dwav_max = dpix_max*self.dispersion_micrppix
@@ -5142,8 +5136,8 @@ class WFC3Spectra():
 
     
     def NframesNscanNdisp( self ):
-        #self.nframes = len( self.ima_fpaths )
-        self.nframes = 20#150
+        self.nframes = len( self.ima_fpaths )
+        #self.nframes = 20#150
         hdu = pyfits.open( self.ima_fpaths[0] )
         self.nscan, self.ndisp = np.shape( hdu[1].data )
         return None

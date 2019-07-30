@@ -1303,7 +1303,7 @@ class WFC3SpecFitLM():
                         m = 4
                     else:
                         pdb.set_trace()
-                    batp[idkey].u = parsk[1:1+m]
+                    batp[idkey].u = [0,0]#parsk[1:1+m]
                 elif pmod[idkey].transittype==2:
                     # Secondary eclipses only have the eclipse depth:
                     batp[idkey].fp = parsk[0]
@@ -4284,7 +4284,8 @@ class WFC3SpecLightCurves():
                 self.ss_enoise[j][i,:] /= refspecj
             # Construct the ss lightcurves by adding back in the white psignal:
             flux_ss = np.zeros( [ nframes, self.nchannels ] )
-            uncs_ss = np.zeros( np.shape( self.ss_dspec[j] ) )
+            #uncs_ss = np.zeros( np.shape( self.ss_dspec[j] ) )
+            uncs_ss = np.zeros( [ nframes, self.nchannels ] )
             for i in range( nframes ):
                 #ecounts1dji = ecounts1dj[i,:]
                 interpfi_dspec = scipy.interpolate.interp1d( wavmicrj, self.ss_dspec[j][i,:] )
@@ -4305,11 +4306,7 @@ class WFC3SpecLightCurves():
                     # Bin the uncertainties within the current channel for the current
                     # spectrum, again using a super-sampled linear interpolation:
                     uncs_ss[i,k] = np.mean( interpfi_enoise( wavk ) )
-                    uncs_ss[:,k] /= np.sqrt( float( npix ) )
-                    #uncs_ss[:,k] = np.mean( self.ss_enoise[j][:,a:b+1], axis=1 )
-                    #uncs_ss[:,k] /= np.sqrt( float( b-a+1 ) )
-                    #print( j, i, k, 'Npix = {0}'.format( npix ) )
-                #pdb.set_trace()
+                    uncs_ss[i,k] /= np.sqrt( float( npix ) )
                 ################################################
             self.lc_flux['ss'][j] = flux_ss
             self.lc_uncs['ss'][j] = uncs_ss
@@ -4441,7 +4438,7 @@ class WFC3SpecLightCurves():
             ixl = np.argmin( np.abs( wavmicr-self.wavedgesmicr[i][0] ) )
             ixu = np.argmin( np.abs( wavmicr-self.wavedgesmicr[i][1] ) )
             ixs = ( wavmicr>=wavmicr[ixl] )*( wavmicr<=wavmicr[ixu] )
-            print( 'aaa', i, '{0:.5f}-{1:.5f} micron'.format( self.wavedgesmicr[i][0], self.wavedgesmicr[i][1] ) )
+            #print( 'aaa', i, '{0:.5f}-{1:.5f} micron'.format( self.wavedgesmicr[i][0], self.wavedgesmicr[i][1] ) )
             ax.fill_between( wavmicr[ixs], 0, f[ixs], facecolor=c, alpha=alphaj )
         if spec1d['config']=='G141':
             ax.set_xlim( [ 0.97, 1.8 ] )

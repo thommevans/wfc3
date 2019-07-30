@@ -4050,7 +4050,8 @@ class WFC3SpecLightCurves():
         self.ss_dshift_pix = 0.001
         self.ss_smoothing_fwhm = None
         self.cuton_micron = None
-        self.npix_perbin = None
+        self.cutoff_micron = None
+        #self.npix_perbin = None
         self.nchannels = None
         self.bandpass_fpath = ''
         self.atlas_fpath = ''
@@ -4080,6 +4081,7 @@ class WFC3SpecLightCurves():
             self.systematics = None
         #ecounts1d = spec1d.spectra[self.analysis]['ecounts1d']
         # Generate the speclcs:
+        #pdb.set_trace()
         self.PrepSpecLCs( spec1d, whitefit )
         self.GetLD( spec1d )
         if save_to_file==True:
@@ -4122,14 +4124,13 @@ class WFC3SpecLightCurves():
         wflux = whitefit['wlcs'][self.dsetname]['whitelc'][self.analysis]['flux']
         self.MakeCommonMode( wfitarrs, wflux[ixsc] )
         wavmicr = spec1d['spectra'][self.analysis]['wavmicr']
-        print( 'CHECK ', self.auxvars[self.analysis].keys() )
-        pdb.set_trace()
-        ecounts1d = spec1d['spectra'][self.analysis]['ecounts1d']
+        dwavmicr = self.auxvars[self.analysis]['wavshift_micr']
+        ecounts1d = spec1d['spectra'][self.analysis]['ecounts1d'][ixsc,:]
         self.GetChannels( wavmicr )
         self.lc_flux = { 'raw':{}, 'cm':{}, 'ss':{} }
         self.lc_uncs = { 'raw':{}, 'cm':{}, 'ss':{} }
-        self.MakeBasic( ecounts1d[ixsc,:] )
-        self.MakeShiftStretch( wavmicr, ecounts1d[ixsc,:], wfitarrs )
+        self.MakeBasic( wavmicr, dwavmicr, ecounts1d )
+        self.MakeShiftStretch( wavmicr, dwavmicr, ecounts1d, wfitarrs )
         self.UnpackArrays()
         return None
     
@@ -4160,21 +4161,66 @@ class WFC3SpecLightCurves():
     
     
     def GetChannels( self, wavmicr ):
-        cutonmicr = self.cuton_micron
-        ndisp = wavmicr.size
-        nchan = self.nchannels
-        nppb = self.npix_perbin
-        edges0 = np.arange( ndisp )[np.argmin( np.abs( wavmicr-cutonmicr ) )]
-        edges = np.arange( edges0, edges0+( nchan+1 )*nppb, nppb )
-        self.chixs = []
+        wavedges = np.linspace( self.cuton_micron, self.cutoff_micron, self.nchannels+1 )
         self.wavedgesmicr = []
-        for i in range( nchan ):
-            self.chixs += [ [ edges[i], edges[i+1] ] ]
-            self.wavedgesmicr += [ [ wavmicr[edges[i]], wavmicr[edges[i+1]] ] ]
+        for i in range( self.nchannels ):
+            self.wavedgesmicr += [ [ wavedges[i], wavedges[i+1] ] ]
+        #cutonmicr = self.cuton_micron
+        #ndisp = wavmicr.size
+        #nchan = self.nchannels
+        #nppb = self.npix_perbin
+        #edges0 = np.arange( ndisp )[np.argmin( np.abs( wavmicr-cutonmicr ) )]
+        #edges = np.arange( edges0, edges0+( nchan+1 )*nppb, nppb )
+        #self.chixs = []
+        #self.wavedgesmicr = []
+        #for i in range( nchan ):
+        #    self.chixs += [ [ edges[i], edges[i+1] ] ]
+        #    self.wavedgesmicr += [ [ wavmicr[edges[i]], wavmicr[edges[i+1]] ] ]
         return None
 
     
-    def MakeBasic( self, ecounts1d ):
+    def MakeBasic( self, wavmicr, dwavmicr, ecounts1d ):
+        """
+        Accounts for wavelength shifts
+        """
+        nframes, ndisp = np.shape( ecounts1d )
+        flux_raw = {}
+        uncs_raw = {}
+        flux_cm = {}
+        uncs_cm = {}
+        for j in self.scankeys:
+            ixsj = np.arange( nframes )[self.scandirs==UR.ScanVal( j )]
+            ndat = len( ixsj )#.sum()
+            flux_raw[j] = np.zeros( [ ndat, self.nchannels ] )
+            uncs_raw[j] = np.zeros( [ ndat, self.nchannels ] )
+            rmsu_del = np.zeros( ndat )
+            rmsc_del = np.zeros( ndat )
+            for i in range( ndat ):
+                wavmicri = wavmicr-dwavmicr[ixsj[i]]
+                ecounts1di = ecounts1d[ixsj[i],:]
+                interpf = scipy.interpolate.interp1d( wavmicri, ecounts1di )
+                for k in range( self.nchannels ):
+                    wavx = np.linspace( self.wavedgesmicr[k][0], self.wavedgesmicr[k][1], 1000 )
+                    dx = np.median( np.diff( wavx ) )/np.median( np.diff( wavmicri ) )
+                    flux_raw[j][i,k] = np.sum( dx*interpf( wavx ) )
+                    uncs_raw[j][i,k] = np.sqrt( flux_raw[j][i,k] )
+                
+            flux_cm[j] = np.zeros( [ ndat, self.nchannels ] )
+            uncs_cm[j] = np.zeros( [ ndat, self.nchannels ] )
+            for k in range( self.nchannels ):
+                flux_cm[j][:,k] = flux_raw[j][:,k]/self.cmode[j]
+                uncs_cm[j][:,k] = uncs_raw[j][:,k]#/self.cmode[j]
+        self.lc_flux['raw'] = flux_raw
+        self.lc_uncs['raw'] = uncs_raw
+        self.lc_flux['cm'] = flux_cm
+        self.lc_uncs['cm'] = uncs_cm
+        return None
+    
+    
+    def MakeBasicBACKUP( self, ecounts1d ):
+        """
+        Only sums static dispersion columns.
+        """
         flux_raw = {}
         uncs_raw = {}
         flux_cm = {}
@@ -4202,7 +4248,7 @@ class WFC3SpecLightCurves():
         return None
     
     
-    def MakeShiftStretch( self, wavmicr, ecounts1d, bestfits ):
+    def MakeShiftStretch( self, wavmicr, dwavmicr, ecounts1d, bestfits ):
         self.ss_dspec = {}
         self.ss_wavshift_pix = {}
         self.ss_vstretch = {}
@@ -4223,8 +4269,13 @@ class WFC3SpecLightCurves():
             psignalj = bestfits[j]['psignal']
             ixs_full = np.arange( psignalj.size )
             ixs_in = psignalj<1-1e-6
-            ixs_out = ixs_full[np.isin(ixs_full,ixs_in,invert=True)]
-            refspecj = np.median( ecounts1dj[ixs_out,:], axis=0 )
+            ixs_out = ixs_full[np.isin( ixs_full, ixs_in, invert=True )]
+            #refspecj = np.median( ecounts1dj[ixs_out,:], axis=0 )
+            # Take the last out-of-transit spectrum as reference
+            ixref = ixs_out[-1]
+            refspecj = ecounts1dj[ixref,:]
+            # All frames get shifted to the reference wavelength scale:
+            wavmicrj = wavmicr-dwavmicr[ixref]
             self.CalcSpecVars( j, ecounts1dj, refspecj )
             # Normalise the residuals and uncertainties:
             nframes, ndisp = np.shape( ecounts1dj )
@@ -4234,19 +4285,32 @@ class WFC3SpecLightCurves():
             # Construct the ss lightcurves by adding back in the white psignal:
             flux_ss = np.zeros( [ nframes, self.nchannels ] )
             uncs_ss = np.zeros( np.shape( self.ss_dspec[j] ) )
-            for i in range( self.nchannels ):
-                a = self.chixs[i][0]
-                b = self.chixs[i][1]
-                # Bin the differential fluxes over the current channel:
-                dspeci = np.mean( self.ss_dspec[j][:,a:b+1], axis=1 )
-                # Since the differential fluxes correspond to the raw spectroscopic
-                # fluxes corrected for wavelength-common-mode systematics minus the 
-                # white transit, we simply add back in the white transit signal to
-                # obtain the systematics-corrected spectroscopic lightcurve:
-                flux_ss[:,i] = dspeci + psignalj
-                # Computed the binned uncertainties for the wavelength channel:
-                uncs_ss[:,i] = np.mean( self.ss_enoise[j][:,a:b+1], axis=1 )
-                uncs_ss[:,i] /= np.sqrt( float( b-a+1 ) )
+            for i in range( nframes ):
+                #ecounts1dji = ecounts1dj[i,:]
+                interpfi_dspec = scipy.interpolate.interp1d( wavmicrj, self.ss_dspec[j][i,:] )
+                interpfi_enoise = scipy.interpolate.interp1d( wavmicrj, self.ss_enoise[j][i,:] )
+                ################################################                
+                for k in range( self.nchannels ):
+                    wavk = np.linspace( self.wavedgesmicr[k][0], self.wavedgesmicr[k][1], 1000 )
+                    dwdp = np.median( np.diff( wavmicrj ) )
+                    npix = ( wavk.max()-wavk.min() )/dwdp
+                    # Bin the differential fluxes within the current channel for the current
+                    # spectrum, which has been super-sampled using linear interpolation:
+                    dspecik = np.mean( interpfi_dspec( wavk ) )
+                    # Since the differential fluxes correspond to the raw spectroscopic
+                    # fluxes corrected for wavelength-common-mode systematics minus the 
+                    # white transit, we simply add back in the white transit signal to
+                    # obtain the systematics-corrected spectroscopic lightcurve:
+                    flux_ss[i,k] = dspecik + psignalj[i]
+                    # Bin the uncertainties within the current channel for the current
+                    # spectrum, again using a super-sampled linear interpolation:
+                    uncs_ss[i,k] = np.mean( interpfi_enoise( wavk ) )
+                    uncs_ss[:,k] /= np.sqrt( float( npix ) )
+                    #uncs_ss[:,k] = np.mean( self.ss_enoise[j][:,a:b+1], axis=1 )
+                    #uncs_ss[:,k] /= np.sqrt( float( b-a+1 ) )
+                    #print( j, i, k, 'Npix = {0}'.format( npix ) )
+                #pdb.set_trace()
+                ################################################
             self.lc_flux['ss'][j] = flux_ss
             self.lc_uncs['ss'][j] = uncs_ss
         return None
@@ -4271,7 +4335,6 @@ class WFC3SpecLightCurves():
         ix0 = self.ss_dispbound_ixs[0]
         ix1 = self.ss_dispbound_ixs[1]
         A = np.ones( [ndisp,2] )
-        #A = np.column_stack( [ A0, x ] )
         coeffs = []
         for i in range( nframes ):
             print( '... frame {0:.0f} of {1:.0f}'.format( i+1, nframes ) )
@@ -4360,7 +4423,8 @@ class WFC3SpecLightCurves():
         f = spec1d['spectra'][self.analysis]['ecounts1d'][-1,:]
         f /= f.max()
         plt.ioff()
-        nchan = len( self.chixs )
+        #nchan = len( self.chixs )
+        nchan = len( self.wavedgesmicr )
         c = 'Blue'
         alpha = [ 0.3, 0.6 ]
         fig = plt.figure()
@@ -4370,16 +4434,22 @@ class WFC3SpecLightCurves():
         ax.set_ylabel( 'Normalised flux' )
         for i in range( nchan ):
             alphaj = alpha[(i+1)%2]
-            ixl = self.chixs[i][0]
-            #ixu = self.chixs[i][1]+1
-            ixu = self.chixs[i][1]
+            #ixl = self.chixs[i][0]
+            ##ixu = self.chixs[i][1]+1
+            #ixu = self.chixs[i][1]
+            #ixs = ( wavmicr>=wavmicr[ixl] )*( wavmicr<=wavmicr[ixu] )
+            ixl = np.argmin( np.abs( wavmicr-self.wavedgesmicr[i][0] ) )
+            ixu = np.argmin( np.abs( wavmicr-self.wavedgesmicr[i][1] ) )
             ixs = ( wavmicr>=wavmicr[ixl] )*( wavmicr<=wavmicr[ixu] )
+            print( 'aaa', i, '{0:.5f}-{1:.5f} micron'.format( self.wavedgesmicr[i][0], self.wavedgesmicr[i][1] ) )
             ax.fill_between( wavmicr[ixs], 0, f[ixs], facecolor=c, alpha=alphaj )
         if spec1d['config']=='G141':
             ax.set_xlim( [ 0.97, 1.8 ] )
         opath = self.lc_fpath.replace( '.pkl', '.chixs.pdf' )
-        titlestr = 'nchan={0:.0f}, cutonmicr={1:.3f}, npixpbin={2:.0f}'\
-                   .format( nchan, self.cuton_micron, self.npix_perbin )
+        #titlestr = 'nchan={0:.0f}, cutonmicr={1:.3f}, npixpbin={2:.0f}'\
+        #           .format( nchan, self.cuton_micron, self.npix_perbin )
+        titlestr = 'nchan={0:.0f}, cutonmicr={1:.3f}, cutoffmicr={2:.3f}'\
+                   .format( nchan, self.cuton_micron, self.cutoff_micron )
         ax.set_title( titlestr )
         fig.savefig( opath )
         plt.ion()
@@ -4614,7 +4684,7 @@ class WFC3Spectra():
             self.filter_str = 'G102'
         else:
             pdb.set_trace()
-        self.rkeys = [ 'raw', 'rlast', 'rdiff' ] # the fundamental reduction keys
+        
         ecounts2d = self.ProcessIma()
         # Having problems with ZapBadPix2D, mainly with it seeming
         # to do a bad job of flagging static bad pixels that
@@ -4999,6 +5069,7 @@ class WFC3Spectra():
         
     
     def ProcessIma( self ):
+        self.rkeys = [ 'raw', 'rlast', 'rdiff' ] # the fundamental reduction keys
         # Read in the raw frames:
         search_str = os.path.join( self.ima_dir, '*_ima.fits' )
         self.ima_fpaths = np.array( glob.glob( search_str ), dtype=str )

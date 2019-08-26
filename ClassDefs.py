@@ -2421,6 +2421,8 @@ class WFC3WhiteFitLM():
             tv = []
             tvf = []
             psignalf = []
+            ttrendf = []
+            ttrendb = []
             print( '\n\nResidual scatter:' )
             Tmidlit = self.Tmid0[self.dsets[i]]
             for s in range( len( self.scankeys[self.dsets[i]] ) ):
@@ -2445,12 +2447,12 @@ class WFC3WhiteFitLM():
                 tvfk = 24*( jdfk-Tmid )
                 tv += [ tvk ]
                 tvf += [ tvfk ]
-                ax1.plot( tvk, 100*( flux[ixsik]-1 ), 'o', mec=mec, mfc=mfc )
+                ax1.plot( tvk, 100*( flux[ixsik]-1 ), 'o', mec=mec, mfc=mfc, zorder=10 )
                 oixs = UR.SplitHSTOrbixs( thrs[ixsik] )
                 norb = len( oixs )
                 for j in range( norb ):
                     ax1.plot( tvk[oixs[j]], 100*( ffit[ixsik][oixs[j]]-1 ), \
-                              '-', color=cjoint )
+                              '-', color=cjoint, zorder=1 )
                 if k==self.scankeys[self.dsets[i]][-1]:
                     delTmin = 24*60*( Tmidlit-Tmid )
                     lstr = 'predicted mid-time (delT={0:.2f}min)'.format( delTmin )
@@ -2461,10 +2463,11 @@ class WFC3WhiteFitLM():
                                               transittype=self.syspars['tr_type'] )
                 #psignalfk = pmodfk.light_curve( self.batpars[idkey] )
                 psignalfk = self.bestfits[self.dsets[i]][k]['psignalf']
+                ttrendfk = self.bestfits[self.dsets[i]][k]['ttrendf']
+                ax1.plot( tvk, 100*( ttrendfk-1 ), '-', c=mec, zorder=0 )
                 psignalf += [ psignalfk ]
-                ax3.errorbar( tvk, (1e6)*resids[ixsik], \
-                              yerr=(1e6)*uncs[ixsik], fmt='o', \
-                              mec=mec, ecolor=mec, mfc=mfc )
+                ax3.errorbar( tvk, (1e6)*resids[ixsik], yerr=(1e6)*uncs[ixsik], \
+                              fmt='o', mec=mec, ecolor=mec, mfc=mfc )
                 ax3.axhline( 0, ls='-', color=cjoint, zorder=0 )
                 rms_ppm = (1e6)*( np.sqrt( np.mean( resids[ixsik]**2. ) ) )
                 print( '  {0} = {1:.0f} ppm ({2:.2f}x photon noise)'\
@@ -2478,7 +2481,7 @@ class WFC3WhiteFitLM():
                           horizontalalignment='left', verticalalignment='bottom' )
                           
             tvf = np.concatenate( tvf )
-            psignalf = np.concatenate( psignalf )
+            psignalf = np.concatenate( psignalf )            
             ixs = np.argsort( tvf )
             ax2.plot( tvf[ixs], 100*( psignalf[ixs]-1 ), '-', color=cjoint, zorder=0 )
             plt.setp( ax1.xaxis.get_ticklabels(), visible=False )
@@ -4081,6 +4084,8 @@ class WFC3SpecLightCurves():
             self.systematics = None
         #ecounts1d = spec1d.spectra[self.analysis]['ecounts1d']
         # Generate the speclcs:
+        # DELETE
+        #print( self.whitefit_fpath_pkl )
         #pdb.set_trace()
         self.PrepSpecLCs( spec1d, whitefit )
         self.GetLD( spec1d )
@@ -4101,6 +4106,12 @@ class WFC3SpecLightCurves():
             ixsj = ( self.scandirs==UR.ScanVal( j ) )
             psignalj = bestfits[j]['psignal']
             self.cmode[j] = flux[ixsj]/psignalj
+            # DELETE:
+            #if 1:
+            #    plt.figure()
+            #    plt.plot( self.jd, flux, 'ok' )
+            #    plt.plot( self.jd, psignalj, '-or' )
+            #    pdb.set_trace()
         return None
 
     
@@ -4109,6 +4120,7 @@ class WFC3SpecLightCurves():
         # Get ixs to be used for each scan direction:
         self.scankeys = list( whitefit['bestfits'][self.dsetname].keys() )
         ixsc = whitefit['keepixs_final'][self.dsetname]
+        #pdb.set_trace()
         self.jd = spec1d['jd'][ixsc]
         self.scandirs = spec1d['scandirs'][ixsc]
         # Copy auxvars, cull, split into f and b to start:
@@ -4119,10 +4131,42 @@ class WFC3SpecLightCurves():
             for i in list( auxvarsk.keys() ):
                 self.auxvars[k][i] = auxvarsk[i][ixsc]
         self.analysis = whitefit['analysis']
-        ixsc = whitefit['keepixs_final'][self.dsetname]
+        #ixsc = whitefit['keepixs_final'][self.dsetname]
         wfitarrs = whitefit['bestfits'][self.dsetname]
         wflux = whitefit['wlcs'][self.dsetname]['whitelc'][self.analysis]['flux']
         self.MakeCommonMode( wfitarrs, wflux[ixsc] )
+        # DELETE
+        if 1:
+            kk = self.dsetname
+            ifile = open( self.whitefit_fpath_pkl, 'rb' )
+            whitefit = pickle.load( ifile )
+            ifile.close()
+            ixsc0 = whitefit['keepixs_final'][kk]
+            jd = whitefit['wlcs'][kk]['whitelc'][whitefit['analysis']]['jd']
+            wflux = whitefit['wlcs'][kk]['whitelc'][whitefit['analysis']]['flux']
+            wfitarrs = whitefit['bestfits'][kk]
+            base = wfitarrs['f']['baseline']
+            rvt = wfitarrs['f']['rvt']
+            rv0 = wfitarrs['f']['rv0']
+            psignal = wfitarrs['f']['psignal']
+            systematics = base*rvt*rv0
+            #plt.figure()
+            #plt.plot( jd, wflux, 'xr' )
+            #plt.plot( jd[ixsc0], wflux[ixsc0], 'ok' )
+            #plt.plot( jd[ixsc0], base*rvt*rv0*psignal, '-c' )
+            # DELETE
+            #plt.figure()
+            #plt.plot( jd[ixsc0], wflux[ixsc0]/psignal, 'ok' )
+            #plt.plot( jd[ixsc0], self.cmode['f'], '-g' )
+            #print( 'AAAAAA', jd[ixsc0].size, self.cmode['f'].size )
+            #print( jd[0], jd[-1] )
+            #print( self.cmode['f'][0], self.cmode['f'][-1] )
+            #plt.figure()
+            #plt.plot( jd[ixsc0], wflux[ixsc0]/systematics, 'ok' )
+            #plt.plot( jd[ixsc0], psignal, '-r' )
+            #plt.title( 'Corrected' )
+            #print( whitefit.keys() )
+            #pdb.set_trace()
         wavmicr = spec1d['spectra'][self.analysis]['wavmicr']
         dwavmicr = self.auxvars[self.analysis]['wavshift_micr']
         ecounts1d = spec1d['spectra'][self.analysis]['ecounts1d'][ixsc,:]
@@ -4210,6 +4254,13 @@ class WFC3SpecLightCurves():
             for k in range( self.nchannels ):
                 flux_cm[j][:,k] = flux_raw[j][:,k]/self.cmode[j]
                 uncs_cm[j][:,k] = uncs_raw[j][:,k]#/self.cmode[j]
+                #DELETE
+                if 0:
+                    print( '\nBBBBB', self.jd.size, self.cmode['f'].size )
+                    print( self.jd[0], self.jd[-1] )
+                    print( self.cmode['f'][0], self.cmode['f'][-1] )
+                    plt.plot( self.jd, self.cmode['f'], '--r' )
+                    pdb.set_trace()
         self.lc_flux['raw'] = flux_raw
         self.lc_uncs['raw'] = uncs_raw
         self.lc_flux['cm'] = flux_cm

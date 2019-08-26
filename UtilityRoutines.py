@@ -385,7 +385,6 @@ def NormalLogP( x, mu, sig  ):
     term2 = -0.5*( ( ( x-mu )/sig )**2. )
     return term1+term2
 
-              
 
 def GetVarKey( y ):
     if y=='hstphase':
@@ -448,7 +447,8 @@ def DefineLogiLprior( z, vark, label, priortype='uniform' ):
         nrupp = 100
         zrange = z.max()-z.min()
         #dz = np.median( np.abs( np.diff( z ) ) )
-        dz = np.min( np.abs( np.diff( z ) ) )
+        dzarr = np.abs( np.diff( z ) )
+        dz = np.min( dzarr[dzarr>0] )
         #zlow = -10
         zlow = np.log( 1./( nrupp*zrange ) )
         if vark!='t':

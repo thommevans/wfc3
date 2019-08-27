@@ -2217,7 +2217,15 @@ class WFC3WhiteFitLM():
 
 
     def BestFitsOut( self ):
+        if self.ttrend=='linear':
+            rfunc = UR.DERampLinBase
+        elif self.ttrend=='quadratic':
+            rfunc = UR.DERampQuadBase
+        else:
+            pdb.set_trace()
         jd = self.data[:,0]
+        thrs = self.data[:,1]
+        torb = self.data[:,2]
         self.bestfits = {}
         nf = 500
         for dset in list( self.data_ixs.keys() ):
@@ -2229,7 +2237,11 @@ class WFC3WhiteFitLM():
                 tfitdk = self.model_fit['ttrend'][ixsdk] # baseline trend
                 rfitdk = self.model_fit['ramp'][ixsdk] # ramp
                 jddk = jd[ixsdk]
+                thrsdk = thrs[ixsdk]
+                torbdk = torb[ixsdk]
                 jdfdk = np.linspace( jddk.min(), jddk.max(), nf )
+                thrsfdk = np.linspace( thrsdk.min(), thrsdk.max(), nf )
+                torbfdk = np.linspace( torbdk.min(), torbdk.max(), nf )
                 pmodfk = batman.TransitModel( self.batpars[idkey], jdfdk, \
                                               transittype=self.syspars['tr_type'] )
                 pfitfdk = pmodfk.light_curve( self.batpars[idkey] )
@@ -2240,6 +2252,20 @@ class WFC3WhiteFitLM():
                 self.bestfits[dset][k]['ramp'] = rfitdk
                 self.bestfits[dset][k]['jdf'] = jdfdk
                 self.bestfits[dset][k]['psignalf'] = pfitfdk
+                parsk = self.pars_fit['pvals'][self.par_ixs[idkey]]
+                if self.pmodels[idkey].transittype==1:
+                    if self.batpars[idkey].limb_dark=='quadratic':
+                        m = 2
+                    elif self.batpars[idkey].limb_dark=='nonlinear':
+                        m = 4
+                    else:
+                        pdb.set_trace()
+                    s = 4+m # RpRs, aRs, b, delT
+                else:
+                    #s = 2 # EcDepth, delT
+                    s = 4 # EcDepth, aRs, b, delT
+                tfit, rfit = rfunc( thrsfdk, torbfdk, parsk[s:] )
+                self.bestfits[dset][k]['ttrendf'] = tfit
         return None
     
     def CalcChi2( self ):
@@ -2256,6 +2282,181 @@ class WFC3WhiteFitLM():
         return chi2
 
     
+    def GetPrior( self, varkey, mleval ):
+        if ( varkey[:2]=='b0' ):
+            prior = pyhm.Gaussian( varkey, mu=mleval, sigma=0.001, value=mleval )
+        elif ( varkey[:2]=='b1' )+( varkey[:2]=='b2' ):
+            prior = pyhm.Uniform( varkey, lower=-1, upper=1, value=mleval )
+        elif ( varkey[:2]=='a1' )+( varkey[:2]=='a2' )+( varkey[:2]=='a3' )\
+             +( varkey[:2]=='a4' )+( varkey[:2]=='a5' ):
+            prior = pyhm.Uniform( varkey, lower=-1e2, upper=1e2, value=mleval )
+        elif ( varkey[:4]=='RpRs' )+( varkey[:3]=='aRs' )+( varkey=='b' ):
+            prior = pyhm.Uniform( varkey, lower=0.1*mleval, upper=10*mleval, value=mleval )
+        elif varkey[:4]=='delT':
+            tmin = 1./24./60.
+            prior = pyhm.Uniform( varkey, lower=mleval-30*tmin, upper=mleval+30*tmin, \
+                                  value=mleval )
+        elif varkey[:4]=='beta':
+            prior = pyhm.Uniform( varkey, lower=1, upper=10, value=1 )
+        else:
+            pdb.set_trace()
+        return prior
+    
+            
+    def GetMCMCParRanges( self, mle ):
+        par_ranges = {}
+        npar = len( self.par_labels )
+        for i in range( npar ):
+            #mleval = self.pars_fit['pvals'][i]
+            varkey = self.par_labels[i]
+            if self.fixed[i]==0:
+                mleval = mle[varkey]
+                if ( varkey[:2]=='b0' ):
+                    p = pyhm.Gaussian( varkey, mu=mleval, sigma=1e-4 )
+                elif ( varkey[:2]=='b1' ):
+                    p = pyhm.Gaussian( varkey, mu=mleval, sigma=1e-4 )
+                elif ( varkey[:2]=='b2' ):
+                    p = pyhm.Gaussian( varkey, mu=mleval, sigma=1e-4 )
+                elif ( varkey[:2]=='a1' )+( varkey[:2]=='a2' )+( varkey[:2]=='a3' )\
+                     +( varkey[:2]=='a4' )+( varkey[:2]=='a5' ):
+                    sig = (1e-6)*np.abs( mleval )
+                    p = pyhm.Gaussian( varkey, mu=mleval, sigma=sig )
+                elif ( varkey[:4]=='RpRs' )+( varkey[:3]=='aRs' )+( varkey=='b' ):
+                    sig = 0.1*np.abs( mleval )
+                    p = pyhm.Gaussian( varkey, mu=mleval, sigma=sig )
+                elif varkey[:4]=='delT':
+                    sig = 1./60./24. # one minute
+                    p = pyhm.Gaussian( varkey, mu=mleval, sigma=sig )
+                elif varkey[:4]=='beta':
+                    p = pyhm.Uniform( varkey, lower=1, upper=1.3 )
+                else:
+                    pdb.set_trace()
+                par_ranges[varkey] = p
+        return par_ranges
+    
+            
+    def FitMCMC( self, save_to_file=False ):
+        nwalkers = self.nwalkers
+        nburn1 = self.nburn1
+        nburn2 = self.nburn2
+        nsteps = self.nsteps
+        mlevals = self.pars_fit['pvals']
+        mledict = {}
+        #par_ranges = self.GetMCMCParRanges()
+        npar = len( self.par_labels )
+        parents = {}
+        for i in range( npar ):
+            k = self.par_labels[i]
+            if self.fixed[i]==0:
+                parents[k] = self.GetPrior( k, mlevals[i] )
+                mledict[k] = mlevals[i]
+            else:
+                parents[k] = mlevals[i]
+        
+        flux = self.data[:,3]
+        uncs = self.data[:,4]
+        ndat = flux.size
+        @pyhm.stochastic( observed=True )
+        def loglikefunc( value=flux, parents=parents ):
+            def logp( value, parents=parents ):
+                pars = []
+                for i in range( npar ):
+                    pars += [ parents[self.par_labels[i]] ]
+                m = self.CalcModel( np.array( pars ) )
+                fullmodel = m['psignal']*m['ttrend']*m['ramp']
+                resids = value-fullmodel
+                logp_val = UR.MVNormalWhiteNoiseLogP( resids, uncs, ndat )
+                return logp_val
+        mbundle = {}
+        for k in list( parents.keys() ):
+            mbundle[k] = parents[k]
+        mbundle['loglikefunc'] = loglikefunc
+        # Initialise the emcee sampler:
+        mcmc = pyhm.MCMC( mbundle )
+        freepars = list( mcmc.model.free.keys() )
+        mcmc.assign_step_method( pyhm.BuiltinStepMethods.AffineInvariant )
+        # Define ranges to randomly sample the initial walker values from
+        # (Note: GetMCMCParRanges is a function provided by user during setup):
+        #init_par_ranges = GetMCMCParRanges( mle )
+        init_par_ranges = self.GetMCMCParRanges( mledict )
+        # Initial emcee burn-in with single walker group:
+        init_walkers = UR.GetInitWalkers( mcmc, nwalkers, init_par_ranges )
+        mcmc.sample( nsteps=nburn1, init_walkers=init_walkers, verbose=False )
+        mle_refined = UR.RefineMLE( mcmc.walker_chain, mbundle )
+        init_par_ranges = self.GetMCMCParRanges( mle_refined )
+        init_walkers = UR.GetInitWalkers( mcmc, nwalkers, init_par_ranges )
+        # Sample for each chain, i.e. group of walkers:
+        self.walker_chains = []
+        print( '\nRunning the MCMC sampling:' )
+        for i in range( self.ngroups ):
+            t1 = time.time()
+            print( '\n... group {0} of {1}'.format( i+1, self.ngroups ) )
+            # Run the burn-in:
+            print( '... running burn-in for {0} steps'.format( nburn2 ) )
+            mcmc.sample( nsteps=nburn2, init_walkers=init_walkers, \
+                         verbose=False )
+            burn_end_state = UR.GetWalkerState( mcmc )
+            # Run the main chain:
+            print( '... running main chain for {0} steps'.format( nsteps ) )
+            mcmc.sample( nsteps=nsteps, init_walkers=burn_end_state, \
+                         verbose=False )
+            self.walker_chains += [ mcmc.walker_chain ]
+            t2 = time.time()
+        # Refine the MLE solution using MCMC output:
+        mle_refined = UR.RefineMLEfromGroups( self.walker_chains, mbundle )
+        chainprops, grs, chaindict = self.ExtractMCMCOutput( nburn=0 )
+        self.chain_properties = chainprops
+        self.grs = grs
+        self.mcmc_results = { 'mle':mle_refined, 'chain_properties':chainprops, \
+                              'grs':grs, 'chain':chaindict }
+        opath_pkl = self.GetFilePath().replace( '.mpfit.', '.MCMC.' )
+        self.whitefit_mcmc_fpath_pkl = opath_pkl
+        self.whitefit_mcmc_fpath_txt = opath_pkl.replace( '.pkl', '.txt' )
+        if save_to_file==True:
+            # TODO = add MCMC pkl save file; currently a bit messy because there's
+            # already a Save() routine that works for the mpfit output.
+            self.TxtOutMCMC()
+        return None
+
+    def TxtOutMCMC( self ):
+        chp = self.chain_properties
+        text_str = '#\n# Sample properties: parameter, median, l34, u34, gr\n#\n'
+        keys = chp['median'].keys()
+        for key in keys:
+            if key!='logp':
+                text_str += '{0} {1:.6f} -{2:.6f} +{3:.6f} {4:.3f}\n'\
+                             .format( key, chp['median'][key], \
+                             np.abs( chp['l34'][key] ), chp['u34'][key], \
+                             self.grs[key] )
+        ofile = open( self.whitefit_mcmc_fpath_txt, 'w' )
+        ofile.write( text_str )
+        ofile.close()
+        return text_str
+    
+    
+    
+    
+    def ExtractMCMCOutput( self, nburn=0 ):
+        chaindict, grs = UR.GetChainFromWalkers( self.walker_chains, nburn=nburn )
+        for k in self.dsets:
+            Tmidkey = 'Tmid_{0}'.format( k )
+            delTkey = 'delT_{0}'.format( k )
+            chaindict[Tmidkey] = self.Tmid0[k] + chaindict[delTkey]
+            grs[Tmidkey] = grs[delTkey]
+            
+        logp_arr = chaindict['logp']
+        logp = chaindict.pop( 'logp' )
+        keys_fitpars = list( chaindict.keys() )
+        npar = len( keys_fitpars )
+        nsamples = len( logp_arr )
+        chain = np.zeros( [ nsamples, npar ] )
+        for j in range( npar ):
+            chain[:,j] = chaindict[keys_fitpars[j]]
+        chainprops = pyhm.chain_properties( chaindict, nburn=0, thin=None, \
+                                            print_to_screen=True )
+        return chainprops, grs, chaindict
+    
+        
     def FitModel( self, save_to_file=False, verbose=True ):
         def NormDeviates( pars, fjac=None, data=None ):
             """
@@ -2464,7 +2665,7 @@ class WFC3WhiteFitLM():
                 #psignalfk = pmodfk.light_curve( self.batpars[idkey] )
                 psignalfk = self.bestfits[self.dsets[i]][k]['psignalf']
                 ttrendfk = self.bestfits[self.dsets[i]][k]['ttrendf']
-                ax1.plot( tvk, 100*( ttrendfk-1 ), '-', c=mec, zorder=0 )
+                ax1.plot( tvfk, 100*( ttrendfk-1 ), '-', c=mec, zorder=0 )
                 psignalf += [ psignalfk ]
                 ax3.errorbar( tvk, (1e6)*resids[ixsik], yerr=(1e6)*uncs[ixsik], \
                               fmt='o', mec=mec, ecolor=mec, mfc=mfc )
@@ -4136,13 +4337,13 @@ class WFC3SpecLightCurves():
         wflux = whitefit['wlcs'][self.dsetname]['whitelc'][self.analysis]['flux']
         self.MakeCommonMode( wfitarrs, wflux[ixsc] )
         # DELETE
-        if 1:
+        if 0:
             kk = self.dsetname
             ifile = open( self.whitefit_fpath_pkl, 'rb' )
             whitefit = pickle.load( ifile )
             ifile.close()
             ixsc0 = whitefit['keepixs_final'][kk]
-            jd = whitefit['wlcs'][kk]['whitelc'][whitefit['analysis']]['jd']
+            jd = whitefit['wlcs'][kk]['whitelc']['jd']#[whitefit['analysis']]['jd']
             wflux = whitefit['wlcs'][kk]['whitelc'][whitefit['analysis']]['flux']
             wfitarrs = whitefit['bestfits'][kk]
             base = wfitarrs['f']['baseline']

@@ -2343,6 +2343,14 @@ class WFC3WhiteFitLM():
         mlevals = self.pars_fit['pvals']
         mledict = {}
         #par_ranges = self.GetMCMCParRanges()
+        ndsets = len( self.dsets )
+        if self.beta_free==True: # white noise rescale parameters
+            for d in list( self.dsets ):
+                for k in self.scankeys[d]:
+                    betakey = 'beta_{0}{1}'.format( d, k )
+                    self.par_labels = np.append( self.par_labels, betakey )
+                    self.fixed = np.append( self.fixed, 0 )
+                    mlevals = np.append( mlevals, 1 )
         npar = len( self.par_labels )
         parents = {}
         for i in range( npar ):
@@ -2354,18 +2362,30 @@ class WFC3WhiteFitLM():
                 parents[k] = mlevals[i]
         
         flux = self.data[:,3]
-        uncs = self.data[:,4]
-        ndat = flux.size
+        uncs = self.data[:,4] # uncertainties_rescale has been applied in PreFitting()
         @pyhm.stochastic( observed=True )
         def loglikefunc( value=flux, parents=parents ):
             def logp( value, parents=parents ):
                 pars = []
-                for i in range( npar ):
+                for i in range( npar-ndsets ):
                     pars += [ parents[self.par_labels[i]] ]
                 m = self.CalcModel( np.array( pars ) )
                 fullmodel = m['psignal']*m['ttrend']*m['ramp']
                 resids = value-fullmodel
-                logp_val = UR.MVNormalWhiteNoiseLogP( resids, uncs, ndat )
+                # Rescale the white noise values for each dataset and scan direction:
+                residsr = []
+                uncsr = []                
+                for dset in self.dsets:
+                    for k in self.scankeys[dset]:
+                        betakey = 'beta_{0}{1}'.format( dset, k )
+                        ixsdk = self.data_ixs[dset][k]
+                        unccorr = self.uncertainties_rescale[dset][k]
+                        uncsr += [ ( uncs[ixsdk]/unccorr )*parents[betakey] ]
+                        residsr += [ resids[ixsdk] ]
+                residsr = np.concatenate( residsr )
+                uncsr = np.concatenate( uncsr )
+                ndat = residsr.size
+                logp_val = UR.MVNormalWhiteNoiseLogP( residsr, uncsr, ndat )
                 return logp_val
         mbundle = {}
         for k in list( parents.keys() ):
@@ -2403,19 +2423,21 @@ class WFC3WhiteFitLM():
             self.walker_chains += [ mcmc.walker_chain ]
             t2 = time.time()
         # Refine the MLE solution using MCMC output:
-        mle_refined = UR.RefineMLEfromGroups( self.walker_chains, mbundle )
+        self.mle_refined = UR.RefineMLEfromGroups( self.walker_chains, mbundle )
         chainprops, grs, chaindict = self.ExtractMCMCOutput( nburn=0 )
         self.chain_properties = chainprops
         self.grs = grs
-        self.mcmc_results = { 'mle':mle_refined, 'chain_properties':chainprops, \
-                              'grs':grs, 'chain':chaindict }
+        self.chain = chaindict
+        #self.mcmc_results = { 'mle':mle_refined, 'chain_properties':chainprops, \
+        #                      'grs':grs, 'chain':chaindict }
         opath_pkl = self.GetFilePath().replace( '.mpfit.', '.MCMC.' )
         self.whitefit_mcmc_fpath_pkl = opath_pkl
         self.whitefit_mcmc_fpath_txt = opath_pkl.replace( '.pkl', '.txt' )
         if save_to_file==True:
             # TODO = add MCMC pkl save file; currently a bit messy because there's
             # already a Save() routine that works for the mpfit output.
-            self.TxtOutMCMC()
+            #self.TxtOutMCMC()
+            self.SaveMCMC()
         return None
 
     def TxtOutMCMC( self ):
@@ -2432,8 +2454,6 @@ class WFC3WhiteFitLM():
         ofile.write( text_str )
         ofile.close()
         return text_str
-    
-    
     
     
     def ExtractMCMCOutput( self, nburn=0 ):
@@ -2582,6 +2602,84 @@ class WFC3WhiteFitLM():
         self.whitefit_fpath_txt = opath_txt
         # Write to the text file:
         self.TxtOut( save_to_file=True )
+        print( '\nSaved:\n{0}\n{1}\n'.format( self.whitefit_fpath_pkl, \
+                                              self.whitefit_fpath_txt ) )
+        return None
+    
+               
+    def SaveMCMC( self ):
+        """
+        In terms of what still needs to be done to make this output
+        be compatible with WFC3PrepSpeclcs():
+          - create cullixs_final in proper format
+          - create bestfits structure in proper format
+        Next step = Look at what structure these have in a GP whitefit file.
+        """
+        outp = {}
+        outp['wlcs'] = self.wlcs
+        outp['analysis'] = self.analysis
+        # vstacked data:
+        outp['data_ixs'] = self.data_ixs
+        outp['data'] = self.data
+        outp['cullixs_init'] = self.cullixs
+        outp['keepixs_final'] = self.keepixs
+        outp['par_ixs'] = self.par_ixs
+        npar = len( self.par_labels )
+        outp['mle_arr'] = np.zeros( npar )
+        for i in range( npar ):
+            if self.fixed[i]==0:
+                outp['mle_arr'][i] = self.mle_refined[self.par_labels[i]]
+        outp['mle_dict'] = self.mle_refined
+        outp['model_fit'] = self.CalcModel( outp['mle_arr'] )
+        outp['systematics'] = 'DE'
+        self.BestFitsOut()
+        outp['bestfits'] = self.bestfits
+        #outp['uncertainties_rescale'] = self.uncertainties_rescale
+        outp['par_labels'] = self.par_labels
+        #outp['pars_fit'] = self.pars_fit
+        #outp['mle'] = {}
+        #for i in range( self.npar ):
+        #    outp['mle'][self.par_labels[i]] = self.pars_fit['pvals'][i]
+        outp['fixed'] = self.fixed
+        outp['batpars'] = self.batpars
+        outp['pmodels'] = self.pmodels
+        outp['syspars'] = self.syspars
+        outp['orbpars'] = { 'fittype':self.orbpars }
+        if ( self.syspars['tr_type']=='primary' )*( self.orbpars=='free' ):
+            #ixs = np.arange( len( self.par_labels ) )
+            #ix_aRs = ixs[self.par_labels=='aRs']
+            #ix_b = ixs[self.par_labels=='b']
+            #aRs = float( self.pars_fit['pvals'][ix_aRs] )
+            #b = float( self.pars_fit['pvals'][ix_b] )
+            aRs = self.mle_refined['aRs']
+            b = self.mle_refined['b']
+        else:
+            aRs = float( self.syspars['aRs'][0] )
+            b = float( self.syspars['b'][0] )
+        outp['orbpars']['aRs'] = aRs
+        outp['orbpars']['b'] = b
+        outp['orbpars']['incl'] = np.rad2deg( np.arccos( b/aRs ) )
+        outp['Tmids'] = self.Tmids
+        outp['Tmid0'] = self.Tmid0
+        # Add in the bulky MCMC output:
+        outp['chain'] = self.chain
+        outp['walker_chains'] = self.walker_chains
+        outp['grs'] = self.grs
+        outp['chain_properties'] = self.chain_properties
+        outp['ngroups'] = self.ngroups
+        outp['nwalkers'] = self.nwalkers
+        outp['nsteps'] = self.nsteps
+        outp['nburn'] = self.nburn2
+        # Save to file:
+        opath_pkl = self.GetFilePath()
+        ofile = open( opath_pkl, 'wb' )
+        pickle.dump( outp, ofile )
+        ofile.close()
+        opath_txt = opath_pkl.replace( '.pkl', '.txt' )
+        self.whitefit_fpath_pkl = opath_pkl
+        self.whitefit_fpath_txt = opath_txt
+        # Write to the text file:
+        self.TxtOutMCMC()
         print( '\nSaved:\n{0}\n{1}\n'.format( self.whitefit_fpath_pkl, \
                                               self.whitefit_fpath_txt ) )
         return None

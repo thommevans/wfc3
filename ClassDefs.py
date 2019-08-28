@@ -3586,6 +3586,9 @@ class WFC3WhiteFitGP():
             k, label = UR.GetVarKey( i )
             #v = auxvars[k]
             v = self.wlcs[dset]['whitelc'][self.analysis]['auxvars'][k]
+            if label=='logphi':
+                v[v<0] += 1
+                v = np.log( v )
             #ext = '{0}_{1}'.format( label, idkey )
             vs = ( v-np.mean( v ) )/np.std( v )
             #logiLlabel = 'logiL{0}'.format( ext )

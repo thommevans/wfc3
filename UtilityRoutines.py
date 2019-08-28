@@ -389,6 +389,8 @@ def NormalLogP( x, mu, sig  ):
 def GetVarKey( y ):
     if y=='hstphase':
         return 'hstphase', 'phi'
+    if y=='loghstphase':
+        return 'hstphase', 'logphi'
     if y=='wavshift':
         return 'wavshift_pix', 'wavshift'
     if y=='cdshift':

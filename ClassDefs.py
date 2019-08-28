@@ -1529,7 +1529,7 @@ class WFC3SpecFitLM():
 
 
     
-class WFC3WhiteFitLM():
+class WFC3WhiteFitDE():
     """
     Uses Levenberg-Marquardt as implemented by mpfit.
     Fits the systematics with double exponential ramp

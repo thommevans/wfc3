@@ -2430,9 +2430,6 @@ class WFC3WhiteFitDE():
         self.chain = chaindict
         #self.mcmc_results = { 'mle':mle_refined, 'chain_properties':chainprops, \
         #                      'grs':grs, 'chain':chaindict }
-        opath_pkl = self.GetFilePath().replace( '.mpfit.', '.MCMC.' )
-        self.whitefit_mcmc_fpath_pkl = opath_pkl
-        self.whitefit_mcmc_fpath_txt = opath_pkl.replace( '.pkl', '.txt' )
         if save_to_file==True:
             # TODO = add MCMC pkl save file; currently a bit messy because there's
             # already a Save() routine that works for the mpfit output.
@@ -2671,7 +2668,11 @@ class WFC3WhiteFitDE():
         outp['nsteps'] = self.nsteps
         outp['nburn'] = self.nburn2
         # Save to file:
-        opath_pkl = self.GetFilePath()
+        #opath_pkl = self.GetFilePath()
+        #ofile = open( opath_pkl, 'wb' )
+        opath_pkl = self.GetFilePath().replace( '.mpfit.', '.MCMC.' )
+        self.whitefit_mcmc_fpath_pkl = opath_pkl
+        self.whitefit_mcmc_fpath_txt = opath_pkl.replace( '.pkl', '.txt' )
         ofile = open( opath_pkl, 'wb' )
         pickle.dump( outp, ofile )
         ofile.close()

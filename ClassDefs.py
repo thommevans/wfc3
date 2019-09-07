@@ -430,7 +430,7 @@ class WFC3SpecFitGP():
             gp.etrain = z['uncs']*beta
             gp.dtrain = np.reshape( resids, [ resids.size, 1 ] )
             mu, sig = gp.predictive( xnew=gp.xtrain, enew=gp.etrain )
-            systematics = ttrend#+mu.flatten()#*( mu.flatten() + 1 )
+            #systematics = ttrend#+mu.flatten()#*( mu.flatten() + 1 )
             bestfits = { 'psignal':psignal, 'ttrend':ttrend, 'mu':mu.flatten(), \
                          'jdf':jdf, 'psignalf':psignalf, 'ttrendf':ttrendf }
             zout = { 'psignal':psignal, 'ttrend':ttrend, 'mu':mu.flatten(), \
@@ -3439,7 +3439,7 @@ class WFC3WhiteFitGP():
             gp.etrain = z['uncs']*beta
             gp.dtrain = np.reshape( resids, [ resids.size, 1 ] )
             mu, sig = gp.predictive( xnew=gp.xtrain, enew=gp.etrain )
-            systematics = ttrend#+mu.flatten()#*( mu.flatten() + 1 )
+            #systematics = ttrend#+mu.flatten()#*( mu.flatten() + 1 )
             bestfits = { 'psignal':psignal, 'ttrend':ttrend, 'mu':mu.flatten(), \
                          'jdf':jdf, 'psignalf':psignalf, 'ttrendf':ttrendf }
             zout = { 'psignal':psignal, 'ttrend':ttrend, 'mu':mu.flatten(), \

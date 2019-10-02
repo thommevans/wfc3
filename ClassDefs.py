@@ -1194,7 +1194,6 @@ class WFC3SpecFitLM():
         uncs = self.data[:,4]
         ndsets = len( self.dsets )
         self.UpdateBatpars( pars )
-
         for i in range( ndsets ):
             dset = self.dsets[i]
             for k in self.scankeys[dset]:
@@ -1303,7 +1302,8 @@ class WFC3SpecFitLM():
                         m = 4
                     else:
                         pdb.set_trace()
-                    batp[idkey].u = [0,0]#parsk[1:1+m]
+                    #batp[idkey].u = [0,0]#parsk[1:1+m]
+                    batp[idkey].u = parsk[1:1+m]
                 elif pmod[idkey].transittype==2:
                     # Secondary eclipses only have the eclipse depth:
                     batp[idkey].fp = parsk[0]
@@ -1479,6 +1479,7 @@ class WFC3SpecFitLM():
             """
             m = self.CalcModel( pars )
             fullmodel = m['psignal']*m['ttrend']
+
             resids = data[:,3]-fullmodel
             status = 0
             rms = np.sqrt( np.mean( resids**2. ) )

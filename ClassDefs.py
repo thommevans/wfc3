@@ -4758,7 +4758,8 @@ class WFC3SpecLightCurves():
             ld_quad[i,:] = ld.quad
             ld_nonlin[i,:] = ld.nonlin
         self.ld = {}
-        self.ld['quad1d'] = ld_quad
+        self.ld['lin1d'] = ld_lin
+        self.ld['quad1d'] = ld_quad        
         self.ld['nonlin1d'] = ld_nonlin
         return None
         

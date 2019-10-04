@@ -4747,12 +4747,14 @@ class WFC3SpecLightCurves():
         bp.Read()
         ld.bandpass_wavmicr = bp.bandpass_wavmicr
         ld.bandpass_thput = bp.bandpass_thput
+        ld_lin = np.zeros( [ self.nchannels, 1 ] )
         ld_quad = np.zeros( [ self.nchannels, 2 ] )
         ld_nonlin = np.zeros( [ self.nchannels, 4 ] )
         for i in range( self.nchannels ):
             ld.cutonmicr = self.wavedgesmicr[i][0]
             ld.cutoffmicr = self.wavedgesmicr[i][1]
             ld.Compute()
+            ld_lin[i,:] = ld.lin
             ld_quad[i,:] = ld.quad
             ld_nonlin[i,:] = ld.nonlin
         self.ld = {}

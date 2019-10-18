@@ -4558,13 +4558,6 @@ class WFC3SpecLightCurves():
             for k in range( self.nchannels ):
                 flux_cm[j][:,k] = flux_raw[j][:,k]/self.cmode[j]
                 uncs_cm[j][:,k] = uncs_raw[j][:,k]#/self.cmode[j]
-                #DELETE
-                if 0:
-                    print( '\nBBBBB', self.jd.size, self.cmode['f'].size )
-                    print( self.jd[0], self.jd[-1] )
-                    print( self.cmode['f'][0], self.cmode['f'][-1] )
-                    plt.plot( self.jd, self.cmode['f'], '--r' )
-                    pdb.set_trace()
         self.lc_flux['raw'] = flux_raw
         self.lc_uncs['raw'] = uncs_raw
         self.lc_flux['cm'] = flux_cm
@@ -4902,7 +4895,8 @@ class WFC3WhiteLightCurve():
         ld.cutoffmicr = self.cutoffmicr
         ld.Compute()
         self.ld = {}
-        self.ld['quad1d'] = ld.quad
+        self.ld['lin1d'] = ld.lin
+        self.ld['quad1d'] = ld.quad        
         self.ld['nonlin1d'] = ld.nonlin
         return None
     
@@ -5039,7 +5033,6 @@ class WFC3Spectra():
             self.filter_str = 'G102'
         else:
             pdb.set_trace()
-        
         ecounts2d = self.ProcessIma()
         # Having problems with ZapBadPix2D, mainly with it seeming
         # to do a bad job of flagging static bad pixels that
@@ -5054,7 +5047,7 @@ class WFC3Spectra():
         self.HSTPhaseTorb()
         self.SumSpatScanSpectra( ecounts2d )
         self.InstallBandpass()
-        self.GetWavSol( make_plot=False )
+        self.GetWavSol()
         self.ZapBadPix1D()
         self.ShiftStretch()
         self.SaveEcounts2D( ecounts2d )
@@ -5134,6 +5127,8 @@ class WFC3Spectra():
                 e1d0_smth = e1d0
             wshifts_pix = np.zeros( self.nframes )
             vstretches = np.zeros( self.nframes )
+            #plt.ion()
+            #plt.figure()
             for i in range( self.nframes ):
                 print( '{0} ... image {1} of {2}'.format( k, i+1, self.nframes ) )
                 e1di = self.spectra[k]['ecounts1d'][i,:]
@@ -5240,7 +5235,7 @@ class WFC3Spectra():
         self.btsettl_spectrum = { 'wavmicr':wav_micr, 'flux':flux_permicr }
         return None
 
-    def GetWavSol( self, make_plot=False ):
+    def GetWavSol( self ):
         if os.path.isdir( self.spec1d_dir )==False:
             os.makedirs( self.spec1d_dir )
         d1, d2 = self.trim_box[1]

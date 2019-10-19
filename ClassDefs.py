@@ -5195,6 +5195,9 @@ class WFC3Spectra():
         ss_fits = np.row_stack( ss_fits )
         diffsarr = np.row_stack( diffsarr )
         rms -= rms.min()
+        # Because the rms versus shift is well-approximated as parabolic,
+        # refine the shift corresponding to the minimum rms by fitting
+        # a parabola to the shifts evaluated above:
         offset = np.ones( nshifts )
         phi = np.column_stack( [ offset, shifts, shifts**2. ] )
         nquad = min( [ nshifts, 15 ] )
@@ -5503,12 +5506,12 @@ class WFC3Spectra():
             e1d = np.zeros( [ nframes, ndisp ] )
             cdcs = np.zeros( nframes )
             x = np.arange( ncross )
-            nf = int( ninterp*len( x ) )
-            xf = np.r_[ x.min():x.max():1j*nf ]
+            #nf = int( ninterp*len( x ) )
+            #xf = np.r_[ x.min():x.max():1j*nf ]
             for i in range( nframes ):
                 print( '{0} ... image {1} of {2}'.format( k, i+1, nframes ) )
                 e2di = e2d[:,:,i]
-                cdcs[i] = self.DetermineScanCenter( e2di, delete=True )
+                cdcs[i] = self.DetermineScanCenter( e2di )
                 if ( cdcs[i]>=0 )*( cdcs[i]<ncross ):
                     # Determine the cross-dispersion coordinates between
                     # which the integration will be performed:
@@ -5534,8 +5537,10 @@ class WFC3Spectra():
         return None
 
     
-    def DetermineScanCenter( self, ecounts2d, delete=False ):
-        # Estimate the center of the scan for purpose of applying mask:
+    def DetermineScanCenter( self, ecounts2d ):
+        """
+        Estimate the center of the scan for purpose of applying mask.
+        """
         x = np.arange( self.nscan )
         ninterp = 10000
         nf = int( ninterp*len( x ) )

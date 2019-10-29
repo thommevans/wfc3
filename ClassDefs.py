@@ -839,7 +839,7 @@ class WFC3SpecFitGP():
         logp_val = gp.logp_builtin()
         return logp_val
 
-class WFC3SpecFitAnalytic():
+class WFC3SpecFitLM():
     
     def __init__( self ):
         self.results_dir = ''
@@ -853,7 +853,6 @@ class WFC3SpecFitAnalytic():
         self.EcDepth_shared = True
         self.slcs = {}
         self.syspars = {}
-        self.systematics_model = 'linear-time'
         self.ttrend = 'linear'
         self.ntrials = 20
         self.chix = 0
@@ -920,11 +919,11 @@ class WFC3SpecFitAnalytic():
         self.data = np.vstack( data ) 
         self.data_ixs = ixs
         return None
-
+    
     def PrepModelParams( self ):
         """
-        Calls appropriate subroutine to set up the arrays organizing the 
-        parameters in a format that can then be used with mpfit. Returns:
+        Sets up the arrays organizing the parameters in a format that can
+        then be used with mpfit. Returns:
         'labels' - A list of strings giving the names of each parameter.
         'fixed' - An array of 1's and 0's indicating which parameters are
         held fixed and which are allowed to vary, as per the 'case' input.
@@ -934,24 +933,7 @@ class WFC3SpecFitAnalytic():
         each individual dataset onto the joint parameter list that gets
         passed to mpfit.
         """
-        if self.systematics_model=='double-exponential':
-            self.PrepModelParamsDE()
-        elif self.systematics_model=='linear-time':
-            self.PrepModelParamsTTrend()
-        elif self.systematics_model=='quadratic-time':
-            self.PrepModelParamsTTrend()
-        else:
-            pdb.set_trace()
-        return None
-
-    def PrepModelParamsDE( self ):
-        # TODO
-        return None
-    
-    def PrepModelParamsTTrend( self ):
-        """
-        Systematics are only a linear or quadratic time trend.
-        """
+        #dsets = list( self.wlcs.keys() )
         ndsets = len( self.dsets )
         # Determine preliminary values for baseline and planet parameters:
         p, b = self.PrepPlanetPars( self.syspars['tr_type'] )
@@ -981,7 +963,7 @@ class WFC3SpecFitAnalytic():
           init = list of initial values for each parameter
         """
         plabels, pinit, pfixed = self.InitialPPars( transittype )
-        blabels0, binit0, bfixed0 = self.InitialBPars()
+        blabels0, binit0, bfixed0 = self.InitialBPars()        
         ng = len( pinit )
         pixsg = np.arange( ng ) # global (across visits) planet parameters
         pixs = {}
@@ -1011,11 +993,11 @@ class WFC3SpecFitAnalytic():
         """
         Returns clean starting arrays for baseline trend arrays.
         """
-        if self.ttrend=='linear-time':
+        if self.ttrend=='linear':
             binit0 = [ 1, 0 ]
             bfixed0 = [ 0, 0 ]
             blabels0 = [ 'b0', 'b1' ]
-        elif self.ttrend=='quadratic-time':
+        elif self.ttrend=='quadratic':
             binit0 = [ 1, 0, 0 ]
             bfixed0 = [ 0, 0, 0 ]
             blabels0 = [ 'b0', 'b1', 'b2' ]
@@ -1568,7 +1550,6 @@ class WFC3WhiteFitDE():
         self.gpkernels = ''
         self.gpinputs = []
         self.scankeys = {}
-        self.scan_systematics = 'shared'
         self.syspars = {}
         self.ld = ''
         self.ldbat = ''
@@ -1707,10 +1688,7 @@ class WFC3WhiteFitDE():
             dset = self.dsets[i]
             ixsi = []
             for j in range( len( self.scankeys[dset] ) ):
-                if self.scan_systematics=='separate':
-                    idkey = '{0}{1}'.format( dset, self.scankeys[dset][j] )
-                else:
-                    idkey = '{0}'.format( dset )
+                idkey = '{0}{1}'.format( dset, self.scankeys[dset][j] )
                 sixsij = nppar_total + s['ixs'][idkey]
                 ixs[idkey] = np.concatenate( [ p['ixs'][dset], sixsij ] )
         self.par_ixs = ixs
@@ -2014,60 +1992,15 @@ class WFC3WhiteFitDE():
         # For each scan direction, the systematics model consists of a
         # double-exponential ramp (a1,a2,a3,a4,a5):
         rlabels0 = [ 'a1', 'a2', 'a3', 'a4', 'a5' ]
-        if len( self.scankeys[dset] )==1:
-            self.scan_systematics = 'shared'
-        if self.scan_systematics=='shared':
-            r, fluxc = self.PrepRampParsShared( rlabels0, thrs, torb, flux )
-        else:
-            r, fluxc = self.PrepRampParsSeparate( rlabels0, thrs, torb, flux )
-        return r, fluxc
-    
-    def PrepRampParsShared( self, rlabels0, thrs, torb, flux ):
         # Initial values for systematics parameters:
         rlabels = []
         rfixed = []
         rinit = []
         rixs = {}
         fluxc = {}
+        c = 0 # counter
         #dsets = list( self.wlcs.keys() )
         ndsets = len( self.dsets )
-        c = 0 # counter
-        for i in range( ndsets ):
-            dset = self.dsets[i]
-            # Run a quick double-exponential ramp fit on the first
-            # and last HST orbits to get reasonable starting values
-            # for the parameters:
-            ixsdk = ixsd[dset][self.scankeys[0]]
-            rpars0, fluxcik = self.PrelimDEFit( thrs[ixsdk], torb[ixsdk], \
-                                                flux[ixsdk] )
-            rinit = np.concatenate( [ rinit, rpars0 ] )
-            nrpar = len( rpars0 )
-            rixs[dset] = np.arange( c*nrpar, (c+1)*nrpar )
-            fluxc[dset] = 
-            for k in self.scankeys[dset]:
-                idkey = '{0}{1}'.format( dset, k )
-                fluxc[idkey] = fluxcik
-            rfixed = np.concatenate( [ rfixed, np.zeros( nrpar ) ] )
-            rlabels_ik = []
-            for j in range( nrpar ):
-                rlabels_ik += [ '{0}_{1}'.format( rlabels0[j], dset ) ]
-            rlabels += [ np.array( rlabels_ik, dtype=str ) ]
-            c += 1
-        rlabels = np.concatenate( rlabels )
-        r = { 'labels':rlabels, 'fixed':rfixed, 'pars_init':rinit, 'ixs':rixs }
-        print( 'rinit', rinit )
-        return r, fluxc
-    
-    def PrepRampParsSeparate( self, rlabels0, thrs, torb, flux ):
-        # Initial values for systematics parameters:
-        rlabels = []
-        rfixed = []
-        rinit = []
-        rixs = {}
-        fluxc = {}
-        #dsets = list( self.wlcs.keys() )
-        ndsets = len( self.dsets )
-        c = 0 # counter
         for i in range( ndsets ):
             dset = self.dsets[i]
             for k in self.scankeys[dset]:
@@ -2091,6 +2024,7 @@ class WFC3WhiteFitDE():
         rlabels = np.concatenate( rlabels )
         r = { 'labels':rlabels, 'fixed':rfixed, 'pars_init':rinit, 'ixs':rixs }
         print( 'rinit', rinit )
+        #pdb.set_trace()
         return r, fluxc
 
     
@@ -4445,10 +4379,7 @@ class WFC3SpecLightCurves():
         ifile = open( self.whitefit_fpath_pkl, 'rb' )
         whitefit = pickle.load( ifile )
         ifile.close()
-        if self.analysis!=whitefit['analysis']:
-            print( '\nWarning: different analysis values for SpecLCs and WhiteFit' )
-            print( '   SpecLCs = {0}'.format( self.analysis ) )
-            print( '  WhiteFit = {0}\n'.format( whitefit['analysis'] ) )
+        self.analysis = whitefit['analysis']        
         print( 'Done.' )
         self.rkeys = spec1d['rkeys']
         if 'systematics' in whitefit:
@@ -4503,7 +4434,7 @@ class WFC3SpecLightCurves():
             self.auxvars[k] = {}
             for i in list( auxvarsk.keys() ):
                 self.auxvars[k][i] = auxvarsk[i][ixsc]
-        #self.analysis = whitefit['analysis']
+        self.analysis = whitefit['analysis']
         #ixsc = whitefit['keepixs_final'][self.dsetname]
         wfitarrs = whitefit['bestfits'][self.dsetname]
         wflux = whitefit['wlcs'][self.dsetname]['whitelc'][self.analysis]['flux']
@@ -4632,7 +4563,38 @@ class WFC3SpecLightCurves():
         self.lc_flux['cm'] = flux_cm
         self.lc_uncs['cm'] = uncs_cm
         return None
-        
+    
+    
+    def MakeBasicBACKUP( self, ecounts1d ):
+        """
+        Only sums static dispersion columns.
+        """
+        flux_raw = {}
+        uncs_raw = {}
+        flux_cm = {}
+        uncs_cm = {}
+        for j in self.scankeys:
+            ixsj = ( self.scandirs==UR.ScanVal( j ) )
+            ndat = ixsj.sum()
+            flux_raw[j] = np.zeros( [ ndat, self.nchannels ] )
+            uncs_raw[j] = np.zeros( [ ndat, self.nchannels ] )
+            for i in range( self.nchannels ):
+                ixl = self.chixs[i][0]
+                ixu = self.chixs[i][1]
+                #flux_raw[j][:,i] = np.sum( ecounts1d[ixsj,ixl:ixu+1], axis=1 )
+                flux_raw[j][:,i] = np.sum( ecounts1d[ixsj,ixl:ixu], axis=1 )
+                uncs_raw[j][:,i] = np.sqrt( flux_raw[j][:,i] )
+            flux_cm[j] = np.zeros( [ ndat, self.nchannels ] )
+            uncs_cm[j] = np.zeros( [ ndat, self.nchannels ] )
+            for i in range( self.nchannels ):
+                flux_cm[j][:,i] = flux_raw[j][:,i]/self.cmode[j]
+                uncs_cm[j][:,i] = uncs_raw[j][:,i]#/self.cmode[j]
+        self.lc_flux['raw'] = flux_raw
+        self.lc_uncs['raw'] = uncs_raw
+        self.lc_flux['cm'] = flux_cm
+        self.lc_uncs['cm'] = uncs_cm
+        return None
+    
     
     def MakeShiftStretch( self, wavmicr, dwavmicr, ecounts1d, bestfits ):
         self.ss_dspec = {}

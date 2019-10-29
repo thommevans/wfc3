@@ -839,7 +839,7 @@ class WFC3SpecFitGP():
         logp_val = gp.logp_builtin()
         return logp_val
 
-class WFC3SpecFitLM():
+class WFC3SpecFitAnalytic():
     
     def __init__( self ):
         self.results_dir = ''

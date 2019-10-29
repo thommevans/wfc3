@@ -4379,7 +4379,10 @@ class WFC3SpecLightCurves():
         ifile = open( self.whitefit_fpath_pkl, 'rb' )
         whitefit = pickle.load( ifile )
         ifile.close()
-        self.analysis = whitefit['analysis']        
+        if self.analysis!=whitefit['analysis']:
+            print( '\nWarning: different analysis values for SpecLCs and WhiteFit' )
+            print( '   SpecLCs = {0}'.format( self.analysis ) )
+            print( '  WhiteFit = {0}\n'.format( whitefit['analysis'] ) )
         print( 'Done.' )
         self.rkeys = spec1d['rkeys']
         if 'systematics' in whitefit:
@@ -4424,7 +4427,6 @@ class WFC3SpecLightCurves():
         # Get ixs to be used for each scan direction:
         self.scankeys = list( whitefit['bestfits'][self.dsetname].keys() )
         ixsc = whitefit['keepixs_final'][self.dsetname]
-        #pdb.set_trace()
         self.jd = spec1d['jd'][ixsc]
         self.scandirs = spec1d['scandirs'][ixsc]
         # Copy auxvars, cull, split into f and b to start:
@@ -4434,43 +4436,9 @@ class WFC3SpecLightCurves():
             self.auxvars[k] = {}
             for i in list( auxvarsk.keys() ):
                 self.auxvars[k][i] = auxvarsk[i][ixsc]
-        self.analysis = whitefit['analysis']
-        #ixsc = whitefit['keepixs_final'][self.dsetname]
         wfitarrs = whitefit['bestfits'][self.dsetname]
         wflux = whitefit['wlcs'][self.dsetname]['whitelc'][self.analysis]['flux']
         self.MakeCommonMode( wfitarrs, wflux[ixsc] )
-        # DELETE
-        if 0:
-            kk = self.dsetname
-            ifile = open( self.whitefit_fpath_pkl, 'rb' )
-            whitefit = pickle.load( ifile )
-            ifile.close()
-            ixsc0 = whitefit['keepixs_final'][kk]
-            jd = whitefit['wlcs'][kk]['whitelc']['jd']#[whitefit['analysis']]['jd']
-            wflux = whitefit['wlcs'][kk]['whitelc'][whitefit['analysis']]['flux']
-            wfitarrs = whitefit['bestfits'][kk]
-            base = wfitarrs['f']['baseline']
-            rvt = wfitarrs['f']['rvt']
-            rv0 = wfitarrs['f']['rv0']
-            psignal = wfitarrs['f']['psignal']
-            systematics = base*rvt*rv0
-            #plt.figure()
-            #plt.plot( jd, wflux, 'xr' )
-            #plt.plot( jd[ixsc0], wflux[ixsc0], 'ok' )
-            #plt.plot( jd[ixsc0], base*rvt*rv0*psignal, '-c' )
-            # DELETE
-            #plt.figure()
-            #plt.plot( jd[ixsc0], wflux[ixsc0]/psignal, 'ok' )
-            #plt.plot( jd[ixsc0], self.cmode['f'], '-g' )
-            #print( 'AAAAAA', jd[ixsc0].size, self.cmode['f'].size )
-            #print( jd[0], jd[-1] )
-            #print( self.cmode['f'][0], self.cmode['f'][-1] )
-            #plt.figure()
-            #plt.plot( jd[ixsc0], wflux[ixsc0]/systematics, 'ok' )
-            #plt.plot( jd[ixsc0], psignal, '-r' )
-            #plt.title( 'Corrected' )
-            #print( whitefit.keys() )
-            #pdb.set_trace()
         wavmicr = spec1d['spectra'][self.analysis]['wavmicr']
         dwavmicr = self.auxvars[self.analysis]['wavshift_micr']
         ecounts1d = spec1d['spectra'][self.analysis]['ecounts1d'][ixsc,:]

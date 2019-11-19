@@ -4824,15 +4824,14 @@ class WFC3WhiteLightCurve():
             self.whitelc[k]['auxvars'] = spec1d['spectra'][k]['auxvars']
             wavmicr = spec1d['spectra'][k]['wavmicr'][d1:d2+1]
             ecounts1d = spec1d['spectra'][k]['ecounts1d'][:,d1:d2+1]
-            if self.dispixs=='all':
-                self.cutonmicr = wavmicr.min()
-                self.cutoffmicr = wavmicr.max()
+            ncross, ndisp = np.shape( ecounts1d )
+            xdisp = np.arange( ndisp )
+            if self.wavmicr_range=='all':
+                self.wavmicr_range = [ wavmicr.min(), wavmicr.max() ]
                 flux = np.sum( ecounts1d, axis=1 )
             else:
-                ixl = self.dispixs[0]
-                ixu = self.dispixs[1]
-                self.cutonmicr = wavmicr[ixl]
-                self.cutoffmicr = wavmicr[ixu]
+                ixl = xdisp[np.argmin(np.abs(wavmicr-self.wavmicr_range[0]))]
+                ixu = xdisp[np.argmin(np.abs(wavmicr-self.wavmicr_range[1]))]
                 #flux = np.sum( ecounts1d[:,ixl:ixu+1], axis=1 )
                 flux = np.sum( ecounts1d[:,ixl:ixu], axis=1 )
             fluxn = flux[-1]
@@ -4859,8 +4858,8 @@ class WFC3WhiteLightCurve():
         bp.Read()
         ld.bandpass_wavmicr = bp.bandpass_wavmicr
         ld.bandpass_thput = bp.bandpass_thput
-        ld.cutonmicr = self.cutonmicr
-        ld.cutoffmicr = self.cutoffmicr
+        ld.cutonmicr = self.wavmicr_range[0]
+        ld.cutoffmicr = self.wavmicr_range[1]
         ld.Compute()
         self.ld = {}
         self.ld['lin1d'] = ld.lin

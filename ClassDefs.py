@@ -1072,18 +1072,18 @@ class WFC3SpecFitAnalytic():
                     pfixed = np.array( [ 0, 0, 0 ] )
             elif self.ld.find( 'nonlin' )>=0:
                 # testing implementation of 4-parameter limb darkening law...
-                pdb.set_trace() # TODO - implement 4-parameter LD
+                #pdb.set_trace() # TODO - implement 4-parameter LD
                 plabels = [ 'RpRs', 'c1', 'c2', 'c3', 'c4' ]
                 try:
                     pinit0 += [ self.ppar_init['RpRs'] ]                        
                 except:
                     pinit0 += [ self.syspars['RpRs'][0] ]
-                pinit0 += [ ldpars[0], ldpars[1] ]
+                pinit0 += [ ldpars[0], ldpars[1], ldpars[2], ldpars[3] ]
                 pinit0 = np.array( pinit0 )
                 if self.ld.find( 'fixed' )>=0:
-                    pfixed = np.array( [ 0, 1, 1 ] )
+                    pfixed = np.array( [ 0, 1, 1, 1, 1 ] )
                 if self.ld.find( 'free' )>=0:
-                    pfixed = np.array( [ 0, 0, 0 ] )
+                    pfixed = np.array( [ 0, 0, 0, 0, 0 ] )
                 
         elif transittype=='secondary':
             plabels = [ 'EcDepth' ]
@@ -4389,11 +4389,7 @@ class WFC3SpecLightCurves():
             self.systematics = whitefit['systematics']
         else:
             self.systematics = None
-        #ecounts1d = spec1d.spectra[self.analysis]['ecounts1d']
         # Generate the speclcs:
-        # DELETE
-        #print( self.whitefit_fpath_pkl )
-        #pdb.set_trace()
         self.PrepSpecLCs( spec1d, whitefit )
         self.GetLD( spec1d )
         if save_to_file==True:
@@ -4419,6 +4415,7 @@ class WFC3SpecLightCurves():
             #    plt.plot( self.jd, flux, 'ok' )
             #    plt.plot( self.jd, psignalj, '-or' )
             #    pdb.set_trace()
+        #pdb.set_trace()
         return None
 
     
@@ -4835,6 +4832,8 @@ class WFC3WhiteLightCurve():
                 #flux = np.sum( ecounts1d[:,ixl:ixu+1], axis=1 )
                 flux = np.sum( ecounts1d[:,ixl:ixu], axis=1 )
             fluxn = flux[-1]
+            self.whitelc[k]['flux_electrons'] = flux
+            self.whitelc[k]['uncs_electrons'] = np.sqrt( flux )
             self.whitelc[k]['flux'] = flux/fluxn
             self.whitelc[k]['uncs'] = np.sqrt( flux )/fluxn
         self.GetLD( spec1d )
@@ -4987,6 +4986,15 @@ class WFC3Spectra():
         self.zap1d_niter = 2
         return None
 
+
+    def getFilterStr( self ):
+        if self.config=='G141':
+            self.filter_str = 'G141'
+        elif self.config=='G102':
+            self.filter_str = 'G102'
+        else:
+            pdb.set_trace()
+        return None
     
     def Extract1DSpectra( self ):
         if ( self.smoothing_fwhm is None )+( self.smoothing_fwhm==0 ):
@@ -4994,12 +5002,7 @@ class WFC3Spectra():
             self.smoothing_fwhm = 0.0
         else:
             self.smoothing_str = 'smooth{0:.2f}pix'.format( self.smoothing_fwhm )
-        if self.config=='G141':
-            self.filter_str = 'G141'
-        elif self.config=='G102':
-            self.filter_str = 'G102'
-        else:
-            pdb.set_trace()
+        self.getFilterStr()
         ecounts2d = self.ProcessIma()
         # Having problems with ZapBadPix2D, mainly with it seeming
         # to do a bad job of flagging static bad pixels that

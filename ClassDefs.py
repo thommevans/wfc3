@@ -1141,27 +1141,60 @@ class WFC3SpecFitAnalytic():
                 ixsm[dset] = ixsmz[ixs0]
             print( 'Iteration={0:.0f}, Nculled={1:.0f}'.format( g+1, ncull ) )
             self.pars_init = pars_fit
-        print( '\n{0}\nRescaling measurement uncertainties by:\n'.format( 50*'#' ) )
-        rescale = {}
-        for dset in self.dsets:
-            rescale[dset] = {}
-            for k in self.scankeys[dset]:
-                idkey = '{0}{1}'.format( dset, k )
-                ixsdk = ixsd[dset][k]
-                zk = ( self.data[ixsdk,3]-ffit[ixsdk] )/self.data[ixsdk,4]
-                chi2k = np.sum( zk**2. )
-                rchi2k = chi2k/float( len( residsk )-len( pars_fit[ixsp[idkey]] ) )
-                rescale[dset][k] = np.sqrt( rchi2k )
-                print( '{0:.2f} for {1}{2}'.format( rescale[dset][k], dset, k ) )
-        for dset in self.dsets:
-            for k in self.scankeys[dset]:
-                self.data[ixsd[dset][k],4] *= rescale[dset][k]
-        self.uncertainties_rescale = rescale
+        if self.beta_free==True:
+            print( '\n{0}\nRescaling measurement uncertainties by:\n'.format( 50*'#' ) )
+            rescale = {}
+            self.sigw = {}
+            rescale_each_direction = False
+            if rescale_each_direction==False:
+                for dset in self.dsets:
+                    rescale[dset] = {}
+                    self.sigw[dset] = {}
+                    z = []
+                    uncs = []
+                    npars = 0
+                    for k in self.scankeys[dset]:
+                        idkey = '{0}{1}'.format( dset, k )
+                        ixsdk = ixsd[dset][k]
+                        #ixsmk = ixsm[dset][k]
+                        z += [ ( self.data[ixsdk,3]-ffit[ixsdk] )/self.data[ixsdk,4] ]
+                        uncs += [ self.data[ixsdk,4] ]
+                        npars += len( pars_fit[ixsp[idkey]] )
+                    z = np.concatenate( z )
+                    chi2 = np.sum( z**2. )
+                    rchi2 = chi2/float( z.size-npars )
+                    # Rescale both scan directions by the same amount:
+                    for k in self.scankeys[dset]:
+                        rescale[dset][k] = np.sqrt( rchi2 )
+                        # The original photon noise:
+                        self.sigw[dset][k] = np.median( self.data[ixsdk,4] )
+                        print( '{0:.2f} for {1}{2}'.format( rescale[dset][k], dset, k ) )
+                        if np.isfinite( rescale[dset][k] )==False: pdb.set_trace()
+                        # The data variable contains the rescaled noise:
+                        self.data[ixsd[dset][k],4] *= rescale[dset][k]
+            else:
+                for dset in self.dsets:
+                    rescale[dset] = {}
+                    for k in self.scankeys[dset]:
+                        idkey = '{0}{1}'.format( dset, k )
+                        ixsdk = ixsd[dset][k]
+                        zk = ( self.data[ixsdk,3]-ffit[ixsdk] )/self.data[ixsdk,4]
+                        chi2k = np.sum( zk**2. )
+                        rchi2k = chi2k/float( len( residsk )-len( pars_fit[ixsp[idkey]] ) )
+                        rescale[dset][k] = np.sqrt( rchi2k )
+                        print( '{0:.2f} for {1}{2}'.format( rescale[dset][k], dset, k ) )
+                for dset in self.dsets:
+                    for k in self.scankeys[dset]:
+                        self.data[ixsd[dset][k],4] *= rescale[dset][k]
+            self.uncertainties_rescale = rescale
+        else:
+            self.uncertainties_rescale = 1
         print( '{0}\n'.format( 50*'#' ) )    
         self.model_fit = None # reset for main FitModel() run
         self.pars_fit = None # reset for main FitModel() run
         self.data_ixs = ixsd
         self.keepixs = ixsm
+        #pdb.set_trace()
         return None
 
     def CalcModel( self, pars ):
@@ -1417,12 +1450,12 @@ class WFC3SpecFitAnalytic():
         self.GetODir()
         if os.path.isdir( self.odir )==False:
             os.makedirs( self.odir )
-        #if self.beta_free==True:
-        #    betastr = 'beta_free'
-        #else:
-        #    betastr = 'beta_fixed'
-        oname = 'spec.{0}.{1}.mpfit.{2}base.ch{3:.0f}.pkl'\
-            .format( self.analysis, self.lctype, self.ttrend, self.chix )
+        if self.beta_free==True:
+            betastr = 'beta_free'
+        else:
+            betastr = 'beta_fixed'
+        oname = 'spec.{0}.{1}.{2}.mpfit.{3}base.ch{4:.0f}.pkl'\
+            .format( self.analysis, betastr, self.lctype, self.ttrend, self.chix )
         opath = os.path.join( self.odir, oname )
         return opath
     
@@ -2191,29 +2224,57 @@ class WFC3WhiteFitDE():
         print( '\n{0}\nRescaling measurement uncertainties by:\n'.format( 50*'#' ) )
         rescale = {}
         self.sigw = {}
-        for dset in self.dsets:
-            rescale[dset] = {}
-            self.sigw[dset] = {}
-            for k in self.scankeys[dset]:
-                idkey = '{0}{1}'.format( dset, k )
-                ixsdk = ixsd[dset][k]
-                #ixsmk = ixsm[dset][k]
-                zk = ( self.data[ixsdk,3]-ffit[ixsdk] )/self.data[ixsdk,4]
-                chi2k = np.sum( zk**2. )
-                rchi2k = chi2k/float( zk.size-len( pars_fit[ixsp[idkey]] ) )
-                rescale[dset][k] = np.sqrt( rchi2k )
-                self.sigw[dset][k] = np.median( self.data[ixsdk,4] )
-                print( '{0:.2f} for {1}{2}'.format( rescale[dset][k], dset, k ) )
-                if np.isfinite( rescale[dset][k] )==False: pdb.set_trace()
-        for dset in self.dsets:
-            for k in self.scankeys[dset]:
-                self.data[ixsd[dset][k],4] *= rescale[dset][k]
-        self.uncertainties_rescale = rescale
+        rescale_each_direction = False
+        if rescale_each_direction==False:
+            for dset in self.dsets:
+                rescale[dset] = {}
+                self.sigw[dset] = {}
+                z = []
+                uncs = []
+                npars = 0
+                for k in self.scankeys[dset]:
+                    idkey = '{0}{1}'.format( dset, k )
+                    ixsdk = ixsd[dset][k]
+                    #ixsmk = ixsm[dset][k]
+                    z += [ ( self.data[ixsdk,3]-ffit[ixsdk] )/self.data[ixsdk,4] ]
+                    uncs += [ self.data[ixsdk,4] ]
+                    npars += len( pars_fit[ixsp[idkey]] )
+                z = np.concatenate( z )
+                chi2 = np.sum( z**2. )
+                rchi2 = chi2/float( z.size-npars )
+                # Rescale both scan directions by the same amount:
+                for k in self.scankeys[dset]:
+                    rescale[dset][k] = np.sqrt( rchi2 )
+                    # The original photon noise:
+                    self.sigw[dset][k] = np.median( self.data[ixsdk,4] )
+                    print( '{0:.2f} for {1}{2}'.format( rescale[dset][k], dset, k ) )
+                    if np.isfinite( rescale[dset][k] )==False: pdb.set_trace()
+                    # The data variable contains the rescaled noise:
+                    self.data[ixsd[dset][k],4] *= rescale[dset][k]
+        else:
+            for dset in self.dsets:
+                rescale[dset] = {}
+                self.sigw[dset] = {}
+                for k in self.scankeys[dset]:
+                    idkey = '{0}{1}'.format( dset, k )
+                    ixsdk = ixsd[dset][k]
+                    #ixsmk = ixsm[dset][k]
+                    zk = ( self.data[ixsdk,3]-ffit[ixsdk] )/self.data[ixsdk,4]
+                    chi2k = np.sum( zk**2. )
+                    rchi2k = chi2k/float( zk.size-len( pars_fit[ixsp[idkey]] ) )
+                    rescale[dset][k] = np.sqrt( rchi2k )
+                    self.sigw[dset][k] = np.median( self.data[ixsdk,4] )
+                    print( '{0:.2f} for {1}{2}'.format( rescale[dset][k], dset, k ) )
+                    if np.isfinite( rescale[dset][k] )==False: pdb.set_trace()
+            for dset in self.dsets:
+                for k in self.scankeys[dset]:
+                    self.data[ixsd[dset][k],4] *= rescale[dset][k]
+        self.uncertainties_rescale = rescale # record the noise rescaling
         print( '{0}\n'.format( 50*'#' ) )    
         self.model_fit = None # reset for main FitModel() run
         self.pars_fit = None # reset for main FitModel() run
         self.data_ixs = ixsd
-        self.keepixs = ixsm
+        self.keepixs = ixsm        
         return None
 
 

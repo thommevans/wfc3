@@ -2230,21 +2230,26 @@ class WFC3WhiteFitDE():
                 rescale[dset] = {}
                 self.sigw[dset] = {}
                 z = []
+                resids = []
                 uncs = []
                 npars = 0
                 for k in self.scankeys[dset]:
                     idkey = '{0}{1}'.format( dset, k )
                     ixsdk = ixsd[dset][k]
                     #ixsmk = ixsm[dset][k]
+                    resids += [ self.data[ixsdk,3]-ffit[ixsdk] ]
                     z += [ ( self.data[ixsdk,3]-ffit[ixsdk] )/self.data[ixsdk,4] ]
                     uncs += [ self.data[ixsdk,4] ]
                     npars += len( pars_fit[ixsp[idkey]] )
                 z = np.concatenate( z )
+                resids = np.concatenate( resids )
+                unc0 = np.median( np.concatenate( uncs ) )
                 chi2 = np.sum( z**2. )
                 rchi2 = chi2/float( z.size-npars )
                 # Rescale both scan directions by the same amount:
                 for k in self.scankeys[dset]:
-                    rescale[dset][k] = np.sqrt( rchi2 )
+                    #rescale[dset][k] = np.sqrt( rchi2 )
+                    rescale[dset][k] = np.std( resids )/unc0
                     # The original photon noise:
                     self.sigw[dset][k] = np.median( self.data[ixsdk,4] )
                     print( '{0:.2f} for {1}{2}'.format( rescale[dset][k], dset, k ) )
@@ -2381,13 +2386,16 @@ class WFC3WhiteFitDE():
                     p = pyhm.Gaussian( varkey, mu=mleval, sigma=1e-4 )
                 elif ( varkey[:2]=='a1' )+( varkey[:2]=='a2' )+( varkey[:2]=='a3' )\
                      +( varkey[:2]=='a4' )+( varkey[:2]=='a5' ):
-                    sig = (1e-6)*np.abs( mleval )
+                    #sig = (1e-6)*np.abs( mleval )
+                    sig = min( [ 1, (1e-2)*np.abs( mleval ) ] )
                     p = pyhm.Gaussian( varkey, mu=mleval, sigma=sig )
+                    #p = pyhm.Gaussian( varkey, mu=0, sigma=10 )
+                    #p = pyhm.Gaussian( varkey, mu=mleval, sigma=0.01 )
                 elif ( varkey[:4]=='RpRs' )+( varkey[:3]=='aRs' )+( varkey=='b' ):
                     sig = 0.1*np.abs( mleval )
                     p = pyhm.Gaussian( varkey, mu=mleval, sigma=sig )
                 elif varkey[:4]=='delT':
-                    sig = 1./60./24. # one minute
+                    sig = 3./60./24. # a few minutes
                     p = pyhm.Gaussian( varkey, mu=mleval, sigma=sig )
                 elif varkey[:4]=='beta':
                     p = pyhm.Uniform( varkey, lower=1, upper=1.3 )
@@ -2568,6 +2576,10 @@ class WFC3WhiteFitDE():
         ostr = self.TxtOut( save_to_file=save_to_file )
         if verbose==True:
             print( ostr )
+        # DELETE:
+        #if save_to_file==True:
+        #    print( 'Whats the deal with the betas?' )
+        #    pdb.set_trace()
         return None
 
     def TxtOut( self, save_to_file=True ):
@@ -2741,10 +2753,12 @@ class WFC3WhiteFitDE():
         opath_txt = opath_pkl.replace( '.pkl', '.txt' )
         self.whitefit_fpath_pkl = opath_pkl
         self.whitefit_fpath_txt = opath_txt
+        self.Plot()
         # Write to the text file:
         self.TxtOutMCMC()
         print( '\nSaved:\n{0}\n{1}\n'.format( self.whitefit_fpath_pkl, \
                                               self.whitefit_fpath_txt ) )
+        pdb.set_trace()
         return None
     
                

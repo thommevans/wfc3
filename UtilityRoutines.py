@@ -430,6 +430,26 @@ def RefineMLE( walker_chain, mbundle ):
     """
     Takes a walker group chain and refines the MLE.
     """
+    ixs0 = np.isfinite( walker_chain['logp'] )
+    ix = np.argmax( walker_chain['logp'][ixs0] )        
+    ix = np.unravel_index( ix, walker_chain['logp'][ixs0].shape )
+    print( '\nRefining the best-fit solution...' )
+    mp = pyhm.MAP( mbundle )
+    for key in mp.model.free.keys():
+        mp.model.free[key].value = walker_chain[key][ixs0][ix]
+    mp.fit( xtol=1e-4, ftol=1e-4, maxfun=10000, maxiter=10000 )
+    print( 'Done.\nRefined MLE values:' )
+    mle_refined = {}
+    for key in mp.model.free.keys():
+        mle_refined[key] = mp.model.free[key].value
+        print( '{0} = {1}'.format( key, mp.model.free[key].value ) )
+    return mle_refined
+
+
+def RefineMLE_PREVIOUS( walker_chain, mbundle ):
+    """
+    Takes a walker group chain and refines the MLE.
+    """
     ix = np.argmax( walker_chain['logp'] )        
     ix = np.unravel_index( ix, walker_chain['logp'].shape )
     print( '\nRefining the best-fit solution...' )

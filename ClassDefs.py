@@ -5635,7 +5635,7 @@ class WFC3Spectra():
                     plt.colorbar()
                     plt.savefig( opath )
                     print( opath )
-                    pdb.set_trace()
+                    #pdb.set_trace()
                 else:
                     e1d[i,:] = -1
             self.spectra[k]['auxvars']['cdcs'] = cdcs

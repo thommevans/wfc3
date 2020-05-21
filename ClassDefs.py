@@ -1084,6 +1084,20 @@ class WFC3SpecFitAnalytic():
                     pfixed = np.array( [ 0, 1, 1, 1, 1 ] )
                 if self.ld.find( 'free' )>=0:
                     pfixed = np.array( [ 0, 0, 0, 0, 0 ] )
+            elif self.ld.find( 'linear' )>=0:
+                # testing implementation of 4-parameter limb darkening law...
+                #pdb.set_trace() # TODO - implement 4-parameter LD
+                plabels = [ 'RpRs', 'u1' ]
+                try:
+                    pinit0 += [ self.ppar_init['RpRs'] ]                        
+                except:
+                    pinit0 += [ self.syspars['RpRs'][0] ]
+                pinit0 += [ ldpars[0] ]
+                pinit0 = np.array( pinit0 )
+                if self.ld.find( 'fixed' )>=0:
+                    pfixed = np.array( [ 0, 1 ] )
+                if self.ld.find( 'free' )>=0:
+                    pfixed = np.array( [ 0, 0 ] )
                 
         elif transittype=='secondary':
             plabels = [ 'EcDepth' ]
@@ -1236,6 +1250,8 @@ class WFC3SpecFitAnalytic():
                 if pmod[idkey].transittype==1:
                     if batp[idkey].limb_dark=='quadratic':
                         m = 2
+                    elif batp[idkey].limb_dark=='linear':
+                        m = 1
                     elif batp[idkey].limb_dark=='nonlinear':
                         m = 4
                     else:
@@ -1266,6 +1282,9 @@ class WFC3SpecFitAnalytic():
         if ldkey.find( 'nonlin' )>=0:
             self.ldbat = 'nonlinear'
             k = 'nonlin1d'
+        elif ldkey.find( 'linear' )>=0:
+            self.ldbat = 'linear'
+            k = 'lin1d'
         elif ldkey.find( 'quad' )>=0:
             self.ldbat = 'quadratic'
             k = 'quad1d'
@@ -1331,6 +1350,8 @@ class WFC3SpecFitAnalytic():
                     batp[idkey].rp = parsk[0]
                     if batp[idkey].limb_dark=='quadratic':
                         m = 2
+                    elif batp[idkey].limb_dark=='linear':
+                        m = 1
                     elif batp[idkey].limb_dark=='nonlinear':
                         m = 4
                     else:
@@ -1448,14 +1469,15 @@ class WFC3SpecFitAnalytic():
     
     def GetFilePath( self ):
         self.GetODir()
+        ldkey = UR.GetLDKey( self.ld )
         if os.path.isdir( self.odir )==False:
             os.makedirs( self.odir )
         if self.beta_free==True:
             betastr = 'beta_free'
         else:
             betastr = 'beta_fixed'
-        oname = 'spec.{0}.{1}.{2}.mpfit.{3}base.ch{4:.0f}.pkl'\
-            .format( self.analysis, betastr, self.lctype, self.ttrend, self.chix )
+        oname = 'spec.{0}.{1}.{2}.{3}.mpfit.{4}base.ch{5:.0f}.pkl'\
+            .format( self.analysis, betastr, self.lctype, ldkey, self.ttrend, self.chix )
         opath = os.path.join( self.odir, oname )
         return opath
     
@@ -4423,6 +4445,25 @@ class WFC3WhiteFitGP():
 class WFC3SpecLightCurves():
     
     def __init__( self ):
+        """
+        <spec1d_fpath> points to an object containing at 
+        minimum the following attributes:
+        - config (str)
+        - dsetname (str)
+        - rkeys (list of str)
+        - jd (array)
+        - scandirs (array)
+        - spectra (dict)
+
+        <spectra> (dict) must contain at a minimum:
+        - spectra[self.analysis]['auxvars'] (dict)
+        - spectra[self.analysis]['wavmicr'] (array)
+        - spectra[self.analysis]['ecounts1d'] (array)
+
+        <auxvars> (dict) must contain at a minimum:
+        - auxvars[self.analysis]['torb'] (array)
+        """
+        
         self.target = ''
         self.dsetname = ''
         self.spec1d_fpath = ''
@@ -4466,7 +4507,8 @@ class WFC3SpecLightCurves():
             self.systematics = None
         # Generate the speclcs:
         self.PrepSpecLCs( spec1d, whitefit )
-        self.GetLD( spec1d )
+        #self.GetLD( spec1d )
+        self.GetLD( spec1d['config'] )
         if save_to_file==True:
             self.Save()
             self.Plot( spec1d )
@@ -4484,15 +4526,7 @@ class WFC3SpecLightCurves():
             ixsj = ( self.scandirs==UR.ScanVal( j ) )
             psignalj = bestfits[j]['psignal']
             self.cmode[j] = flux[ixsj]/psignalj
-            # DELETE:
-            #if 1:
-            #    plt.figure()
-            #    plt.plot( self.jd, flux, 'ok' )
-            #    plt.plot( self.jd, psignalj, '-or' )
-            #    pdb.set_trace()
-        #pdb.set_trace()
         return None
-
     
     
     def PrepSpecLCs( self, spec1d, whitefit ):
@@ -4763,7 +4797,7 @@ class WFC3SpecLightCurves():
             shifted[i,:] = interpf( x+dwavs[i] )
         return dwavs, shifted
 
-    def GetLD( self, spec1d ):
+    def GetLD( self, config ):
         atlas = AtlasModel()
         atlas.fpath = self.atlas_fpath
         atlas.teff = self.atlas_teff
@@ -4775,7 +4809,7 @@ class WFC3SpecLightCurves():
         ld.intens = atlas.intens
         ld.mus = atlas.mus
         bp = Bandpass()
-        bp.config = spec1d['config']
+        bp.config = config#spec1d['config']
         bp.fpath = self.bandpass_fpath
         bp.Read()
         ld.bandpass_wavmicr = bp.bandpass_wavmicr
@@ -4911,11 +4945,12 @@ class WFC3WhiteLightCurve():
             self.whitelc[k]['uncs_electrons'] = np.sqrt( flux )
             self.whitelc[k]['flux'] = flux/fluxn
             self.whitelc[k]['uncs'] = np.sqrt( flux )/fluxn
-        self.GetLD( spec1d )
+        #self.GetLD( spec1d )
+        self.GetLD( spec1d['config'] )
         self.Save()
         return None
 
-    def GetLD( self, spec1d ):
+    def GetLD( self, config ):
         atlas = AtlasModel()
         atlas.fpath = self.atlas_fpath
         atlas.teff = self.atlas_teff
@@ -4927,7 +4962,8 @@ class WFC3WhiteLightCurve():
         ld.intens = atlas.intens
         ld.mus = atlas.mus
         bp = Bandpass()
-        bp.config = spec1d['config']
+        #bp.config = spec1d['config']
+        bp.config = config
         bp.fpath = self.bandpass_fpath
         bp.Read()
         ld.bandpass_wavmicr = bp.bandpass_wavmicr
@@ -5368,6 +5404,15 @@ class WFC3Spectra():
             plt.close()
             plt.close()
             plt.ion()
+            # TESTING:
+            if 0:
+                plt.figure()
+                f = e1d/e1d.max()
+                f = np.interp( wstar, wavmicr0, f )
+                dd = ystar-f
+                plt.figure()
+                plt.plot( wstar, dd, '-k' )
+                pdb.set_trace()
         return None
         
     
@@ -5488,6 +5533,7 @@ class WFC3Spectra():
             self.spectra[k]['auxvars']['bg_ppix'] = []
         self.scandirs = []
         ima_fpaths = []
+        #self.nframes = 10 # DELETE
         for i in range( self.nframes ):
             hdu = pyfits.open( self.ima_fpaths[i] )
             h0 = hdu[0].header
@@ -5536,6 +5582,9 @@ class WFC3Spectra():
         Determines the spatial scan centers and extracts the spectra
         by integrating within specified aperture.
         """
+        plt.ioff()
+        if os.path.isdir( self.reductionFigs_dir )==False:
+            os.makedirs( self.reductionFigs_dir )
         cross_axis = 0
         disp_axis = 1
         frame_axis = 2
@@ -5575,6 +5624,18 @@ class WFC3Spectra():
                     if ixs_full[-1]!=True:
                         xupp_partial = xmax - xmax_full
                         e1d[i,:] += xupp_partial*e2di[xmax_full+1,:]
+                    # TESTING:
+                    plt.figure()
+                    oname = self.ima_fpaths[i].replace( '.fits', '.pdf' )
+                    opath = os.path.join( self.reductionFigs_dir, oname )
+                    plt.imshow( e2di, interpolation='nearest', aspect='auto' )
+                    plt.axhline( cdcs[i], ls='--', c='m' )
+                    plt.axhline( xmin, ls='-', c='c' )
+                    plt.axhline( xmax, ls='-', c='c' )
+                    plt.colorbar()
+                    plt.savefig( opath )
+                    print( opath )
+                    pdb.set_trace()
                 else:
                     e1d[i,:] = -1
             self.spectra[k]['auxvars']['cdcs'] = cdcs
@@ -5653,8 +5714,8 @@ class WFC3Spectra():
             #self.spectra['rlast']['ecounts2d'] += [ lastr_ecounts.copy() - lastr_bgppix ]
             ecounts2d = {} # testing
             ecounts2d['raw'] = lastr_ecounts.copy() # testing
-            lastr_bgppix = self.BackgroundMed( lastr_ecounts ) # testing
-            ecounts2d['rlast'] = lastr_ecounts.copy() - lastr_bgppix # testing
+            lastr_bgppix, lastr_bgstdv = self.BackgroundMed( lastr_ecounts )
+            ecounts2d['rlast'] = lastr_ecounts.copy() - lastr_bgppix
             for k in list( self.spectra.keys() ):
                 self.spectra[k]['auxvars']['bg_ppix'] += [ lastr_bgppix ]
             # Second, extract flux by summing read-differences:
@@ -5663,14 +5724,38 @@ class WFC3Spectra():
             rdiff_cscans = np.zeros( ndiffs )
             for j in range( ndiffs ):
                 rix = j+1
-                e1 = UR.WFC3JthRead( hdu, nreads, rix )
-                e2 = UR.WFC3JthRead( hdu, nreads, rix+1 )
+                e1_withBG = UR.WFC3JthRead( hdu, nreads, rix )
+                e2_withBG = UR.WFC3JthRead( hdu, nreads, rix+1 )
                 # Need to perform sky subtraction here to calibrate
                 # the flux level between reads, because the sky
-                # actually varies quite a lot between successive reads:
-                e1 -= self.BackgroundMed( e1 )
-                e2 -= self.BackgroundMed( e2 )
+                # actually varies quite a lot between successive reads
+                # as background counts continue to accumulate with time:
+                bg1, stdv1 = self.BackgroundMed( e1_withBG )
+                bg2, stdv2 = self.BackgroundMed( e2_withBG )
+                e1 = e1_withBG - bg1
+                e2 = e2_withBG - bg2
                 rdiff_ecounts[:,:,j] = e2-e1
+                # DELETE BELOW
+                if 0:
+                    plt.ion() 
+                    plt.figure()
+                    plt.imshow( e1_withBG[10:-10,:], interpolation='nearest', aspect='auto' )
+                    plt.colorbar()
+                    plt.figure()
+                    plt.imshow( e1[10:-10,:], interpolation='nearest', aspect='auto' )
+                    plt.colorbar()
+                    plt.figure()
+                    ixx = ( e1_withBG[10:-10,:]<200 )*( e1_withBG[10:-10,:]>-100 )
+                    zzA = e1_withBG[10:-10,:][ixx].flatten()
+                    plt.hist( zzA, bins=100, histtype='step' )
+                    ixx = ( e1[10:-10,:]<200 )*( e1[10:-10,:]>-100 )
+                    zzB = e1[10:-10,:][ixx].flatten()
+                    plt.hist( zzB, bins=100, histtype='step' )
+                    plt.axvline( np.median( zzA ) )
+                    plt.axvline( np.median( zzB ) )                
+                    #plt.hist( e1[10:-10,:].flatten(), bins=100, histtype='step' )
+                    pdb.set_trace()
+                #### DELETE ABOVE
                 cscan = self.DetermineScanCenter( rdiff_ecounts[:,:,j] )
                 # Apply the top-hat mask:
                 ixl = int( np.floor( cscan-self.maskradius ) )
@@ -5684,16 +5769,24 @@ class WFC3Spectra():
             else:
                 self.scandirs += [ -1 ]
             firstr_raw = UR.WFC3JthRead( hdu, nreads, 1 )
-            firstr_ecounts = firstr_raw-self.BackgroundMed( firstr_raw )
+            firstr_ecounts = firstr_raw-self.BackgroundMed( firstr_raw )[0]
             ecounts_per_read = np.dstack( [ firstr_ecounts, rdiff_ecounts ] )
             #self.spectra['rdiff']['ecounts2d'] += [ np.sum( ecounts_per_read, axis=2 ) ]
             ecounts2d['rdiff'] = np.sum( ecounts_per_read, axis=2 )
+            #pdb.set_trace()
             return ecounts2d, check
 
     def BackgroundMed( self, ecounts2d ):
         c1, c2 = self.bg_box[0]
         d1, d2 = self.bg_box[1]
         bgppix = np.median( ecounts2d[c1:c2+1,d1:d2+1] )
+        bgstdv = np.std( ecounts2d[c1:c2+1,d1:d2+1] )
+        return bgppix, bgstdv 
+    
+    def BackgroundSpec( self, ecounts2d, cross_axis ):
+        c1, c2 = self.bg_box[0]
+        d1, d2 = self.bg_box[1]
+        bgppix = np.median( ecounts2d[c1:c2+1,d1:d2+1], axis=cross_axis )
         return bgppix 
     
     def Read1DSpectra( self ):

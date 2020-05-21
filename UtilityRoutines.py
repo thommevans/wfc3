@@ -333,6 +333,10 @@ def GetLDKey( ld ):
         ldkey = 'ld_nonlin_fixed'
     elif ld=='ldatlas_nonlin_free':
         ldkey = 'ld_nonlin_free'
+    elif ld=='ldatlas_linear_fixed':
+        ldkey = 'ld_linear_fixed'
+    elif ld=='ldatlas_linear_free':
+        ldkey = 'ld_linear_free'
     elif ld=='ldatlas_quad_free': 
         ldkey = 'ld_quad_free'
     elif ld=='ldatlas_quad_fixed': 

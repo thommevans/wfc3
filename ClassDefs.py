@@ -1238,7 +1238,7 @@ class WFC3SpecFitAnalytic():
                 return pars[0] + pars[1]*thrs + pars[2]*( thrs**2. )
         elif self.ttrend=='exponential':
             def bfunc( thrs, pars ):
-                return pars[0] + pars[1]*np.exp( -pars[2]*thr )
+                return pars[0] + pars[1]*np.exp( -pars[2]*thrs )
         else:
             pdb.set_trace()
         ndat, nvar = np.shape( self.data )

@@ -1004,6 +1004,10 @@ class WFC3SpecFitAnalytic():
             binit0 = [ 1, 0, 0 ]
             bfixed0 = [ 0, 0, 0 ]
             blabels0 = [ 'b0', 'b1', 'b2' ]
+        elif self.ttrend=='exponential':
+            binit0 = [ 1, 0, 0 ]
+            bfixed0 = [ 0, 0, 0 ]
+            blabels0 = [ 'b0', 'b1', 'b2' ]
         return blabels0, binit0, bfixed0
     
     def PrelimBPars( self, dataset ):
@@ -1037,6 +1041,8 @@ class WFC3SpecFitAnalytic():
                 binitk = [ offs, grad ]
             elif self.ttrend=='quadratic':
                 binitk = [ offs, grad, 0 ]
+            elif self.ttrend=='exponential':
+                binitk = [ offs, 0, 0 ]
             else:
                 pdb.set_trace()
             bpars_init = np.concatenate( [ bpars_init, binitk ] )
@@ -1230,6 +1236,9 @@ class WFC3SpecFitAnalytic():
         elif self.ttrend=='quadratic':
             def bfunc( thrs, pars ):
                 return pars[0] + pars[1]*thrs + pars[2]*( thrs**2. )
+        elif self.ttrend=='exponential':
+            def bfunc( thrs, pars ):
+                return pars[0] + pars[1]*np.exp( -pars[2]*thr )
         else:
             pdb.set_trace()
         ndat, nvar = np.shape( self.data )
@@ -1394,6 +1403,8 @@ class WFC3SpecFitAnalytic():
                     ttrendfdk = pfit[-2]+pfit[-1]*thrsfdk
                 elif self.ttrend=='quadratic':
                     ttrendfdk = pfit[-3]+pfit[-2]*thrsfdk+( pfit[-1]*( thrsfdk**2. ) )
+                elif self.ttrend=='exponential':
+                    ttrendfdk = pfit[-3]+pfit[-2]*np.exp( -pfit[-1]*thrsfdk )
                 self.bestfits[dset][k] = {}
                 self.bestfits[dset][k]['jd'] = jddk
                 self.bestfits[dset][k]['psignal'] = pfitdk

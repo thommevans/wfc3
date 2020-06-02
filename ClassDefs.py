@@ -965,7 +965,7 @@ class WFC3SpecFitAnalytic():
           init = list of initial values for each parameter
         """
         plabels, pinit, pfixed = self.InitialPPars( transittype )
-        # THIS SYSTEMATICS LINE COULD BE GENERALIZED TO HANDLE DE AS WELL...
+        # THIS SYSTEMATICS LINE COULD BE GENERALIZED TO HANDLE D.E. AS WELL...
         blabels0, binit0, bfixed0 = self.InitialBPars()        
         ng = len( pinit )
         pixsg = np.arange( ng ) # global (across visits) planet parameters
@@ -986,7 +986,6 @@ class WFC3SpecFitAnalytic():
                 bixs[i] = bparsk['bixs'][i]+c
             c += len( bparsk['blabels'] )
         plabels = np.array( plabels )
-        #blabels = np.array( blabels ).flatten()
         blabels = np.concatenate( blabels ).flatten()
         p = { 'labels':plabels, 'fixed':pfixed, 'pars_init':pinit, 'ixs':pixs }
         b = { 'labels':blabels, 'fixed':bfixed, 'pars_init':binit, 'ixs':bixs }
@@ -1013,13 +1012,20 @@ class WFC3SpecFitAnalytic():
     def PrelimBPars( self, dataset ):
         """
         """
+        if len( self.scankeys[dataset] )>1:
+            if self.baselineScanShare==True: # TESTING
+                b = self.PrelimBParsScanShared( dataset )
+            else:
+                b = self.PrelimBParsScanSeparate( dataset )
+        else:
+            b = self.PrelimBParsScanSeparate( dataset )
+        return b
+    
+    def PrelimBParsScanSeparate( self, dataset ):
         blabels0, binit0, bfixed0 = self.InitialBPars()
         nbpar = len( binit0 )
         slcs = self.slcs[dataset]
         ixs = np.arange( slcs['jd'].size )
-        #scanixs = {}
-        #scanixs['f'] = ixs[slcs.scandirs==1]
-        #scanixs['b'] = ixs[slcs.scandirs==-1]
         bpars_init = []
         bfixed = []
         blabels = []
@@ -1057,16 +1063,81 @@ class WFC3SpecFitAnalytic():
         b = { 'blabels':blabels, 'bfixed':bfixed, 'bpars_init':bpars_init, 'bixs':bixs }
         return b
 
+    def PrelimBParsScanShared( self, dataset ):
+        blabels0, binit0, bfixed0 = self.InitialBPars()
+        nbpar = len( binit0 )
+        slcs = self.slcs[dataset]
+        ixs = np.arange( slcs['jd'].size )
+        #bpars_init = []
+        #bfixed = []
+        #blabels = []
+        #bixs = {}
+        #c = 0 # counter
+
+        # Forward scan is the reference:
+        k = 'f'
+        idkey = '{0}{1}'.format( dataset, k )
+        ixsf = self.data_ixs[dataset]['f']
+        thrsf = self.data[:,1][ixsf]
+        fluxf = self.data[:,3][ixsf]
+        orbixs = UR.SplitHSTOrbixs( thrsf )
+        t1f = np.median( thrsf[0] )
+        t2f = np.median( thrsf[-1] )
+        f1f = np.median( fluxf[0] )
+        f2f = np.median( fluxf[-1] )
+        grad = ( f2f-f1f )/( t2f-t1f )
+        offsf = f1f-grad*t1f
+        # Estimate offset of backward-scan flux:
+        ixsb = self.data_ixs[dataset]['b']
+        fluxb = self.data[:,3][ixsb]
+        f2b = np.median( fluxb[-1] )
+        offsb = f2f/f2b
+        
+        if self.ttrend=='linear':
+            binit = np.array( [ offsf, grad, offsb ] )
+            bfixed = np.array( [ 0, 0, 0 ] )
+            blabels = [ '{0}_{1}f'.format( blabels0[0], dataset ), \
+                        '{0}_{1}'.format( blabels0[1], dataset ), \
+                        '{0}_{1}b'.format( blabels0[0], dataset ) ]
+        elif self.ttrend=='quadratic':
+            binit = np.array( [ offsf, grad, 0, offsb ] )
+            bfixed = np.array( [ 0, 0, 0, 0 ] )
+            blabels = [ '{0}_{1}f'.format( blabels0[0], dataset ), \
+                        '{0}_{1}'.format( blabels0[1], dataset ), \
+                        '{0}_{1}'.format( blabels0[2], dataset ), \
+                        '{0}_{1}b'.format( blabels0[0], dataset ) ]
+        elif self.ttrend=='exponential':
+            binit = np.array( [ offsf, 0, 0, offsb ] )
+            bfixed = np.array( [ 0, 0, 0, 0 ] )
+            blabels = [ '{0}_{1}f'.format( blabels0[0], dataset ), \
+                        '{0}_{1}'.format( blabels0[1], dataset ), \
+                        '{0}_{1}'.format( blabels0[2], dataset ), \
+                        '{0}_{1}b'.format( blabels0[0], dataset ) ]
+        else:
+            pdb.set_trace()
+
+        blabels = np.array( blabels, dtype=str )
+
+        # Important bit is to ensure that the offsets are different,
+        # but the baseline shape parameters are shared:
+        bixs = {}
+        for k in self.scankeys[dataset]:
+            idkey = '{0}{1}'.format( dataset, k )
+            bixs[idkey] = np.arange( 0, 0+nbpar )
+        idkey = '{0}b'.format( dataset )
+        bixs[idkey][0] = nbpar # replace offset for backward scan
+        b = { 'blabels':blabels, 'bfixed':bfixed, 'bpars_init':binit, 'bixs':bixs }
+        return b
+
+
     def InitialPPars( self, transittype ):
         """
         Returns clean starting arrays for planet parameter arrays.
         """
-        #dsets = list( self.wlcs.keys() )
         config = self.slcs[self.dsets[0]]['config']
         pinit0 = []
         if transittype=='primary':
             ldpars = self.ldpars[config][self.chix,:]
-            #s = 3
             if self.ld.find( 'quad' )>=0:
                 plabels = [ 'RpRs', 'gam1', 'gam2' ]
                 try:
@@ -1080,8 +1151,6 @@ class WFC3SpecFitAnalytic():
                 if self.ld.find( 'free' )>=0:
                     pfixed = np.array( [ 0, 0, 0 ] )
             elif self.ld.find( 'nonlin' )>=0:
-                # testing implementation of 4-parameter limb darkening law...
-                #pdb.set_trace() # TODO - implement 4-parameter LD
                 plabels = [ 'RpRs', 'c1', 'c2', 'c3', 'c4' ]
                 try:
                     pinit0 += [ self.ppar_init['RpRs'] ]                        
@@ -1094,8 +1163,6 @@ class WFC3SpecFitAnalytic():
                 if self.ld.find( 'free' )>=0:
                     pfixed = np.array( [ 0, 0, 0, 0, 0 ] )
             elif self.ld.find( 'linear' )>=0:
-                # testing implementation of 4-parameter limb darkening law...
-                #pdb.set_trace() # TODO - implement 4-parameter LD
                 plabels = [ 'RpRs', 'u1' ]
                 try:
                     pinit0 += [ self.ppar_init['RpRs'] ]                        
@@ -1539,7 +1606,6 @@ class WFC3SpecFitAnalytic():
         print( '\nSaved:\n{0}\n{1}\n'.format( self.specfit_fpath_pkl, \
                                               self.specfit_fpath_txt ) )
         return None
-    
     
     def FitModel( self, save_to_file=False, verbose=True ):
         def NormDeviates( pars, fjac=None, data=None ):

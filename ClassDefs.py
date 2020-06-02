@@ -937,6 +937,8 @@ class WFC3SpecFitAnalytic():
         ndsets = len( self.dsets )
         # Determine preliminary values for baseline and planet parameters:
         p, b = self.PrepPlanetPars( self.syspars['tr_type'] )
+        # SEE PREPMODELPARAMS() IN WHITEFITDE() FOR HOW TO GENERALIZE THIS
+        # TO ALLOW FOR DE SYSTEMATICS.
         # Combine into global parameter list:
         nppar_total = len( p['pars_init'] )
         self.pars_init = np.concatenate( [ p['pars_init'], b['pars_init'] ] )
@@ -963,6 +965,7 @@ class WFC3SpecFitAnalytic():
           init = list of initial values for each parameter
         """
         plabels, pinit, pfixed = self.InitialPPars( transittype )
+        # THIS SYSTEMATICS LINE COULD BE GENERALIZED TO HANDLE DE AS WELL...
         blabels0, binit0, bfixed0 = self.InitialBPars()        
         ng = len( pinit )
         pixsg = np.arange( ng ) # global (across visits) planet parameters

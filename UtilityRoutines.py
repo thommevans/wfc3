@@ -171,6 +171,25 @@ def DERampQuadBase( t, torb, pars ):
     return ttr, rvt*r0t
 
 
+def DERampExpBase( t, torb, pars ):
+    """
+    Implementation of the double-exponential ramp model for WFC3 systematics.
+    Taken from Eq 1-3 of de Wit et al (2018).
+    """
+    a1 = pars[0]
+    a2 = pars[1]
+    a3 = pars[2]
+    a4 = pars[3]
+    a5 = pars[4]
+    b0 = pars[5]
+    b1 = pars[6]
+    b2 = pars[7]
+    rvt = rvFunc( t, a1, a2 )
+    r0t = r0Func( torb, rvt, a3, a4, a5  )
+    ttr = b0 + b1*np.exp( -b2*t ) # exponential-time baseline trend
+    return ttr, rvt*r0t
+
+
 def Zap2D( ecounts2d, nsig_transient=8, nsig_static=10, niter=1 ):
     """
     Routine for identifying static and transient bad pixels in a 2d spectroscopic data cube.

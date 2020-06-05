@@ -853,9 +853,14 @@ class WFC3SpecFitAnalytic():
         self.EcDepth_shared = True
         self.slcs = {}
         self.syspars = {}
-        self.ttrend = 'linear'
         self.ntrials = 20
         self.chix = 0
+        self.ttrend = 'linear'
+        self.ramp_model = None
+        #self.ramp_model = 'DE'
+        self.rampScanShare = True
+        self.baselineScanShare = True
+        
 
     def PrepData( self ):
         """
@@ -923,43 +928,43 @@ class WFC3SpecFitAnalytic():
     def PrepModelParams( self ):
         """
         Sets up the arrays organizing the parameters in a format that can
-        then be used with mpfit. Returns:
-        'labels' - A list of strings giving the names of each parameter.
+        then be used with mpfit. Installs as attribues:
+        'par_labels' - A list of strings giving the names of each parameter.
         'fixed' - An array of 1's and 0's indicating which parameters are
         held fixed and which are allowed to vary, as per the 'case' input.
         'pars_init' - An array containing the default starting values
         for each parameter.
-        'ixs' - A dictionary containing indices that map the parameters from
+        'par_ixs' - A dictionary containing indices that map the parameters from
         each individual dataset onto the joint parameter list that gets
         passed to mpfit.
         """
         ndsets = len( self.dsets )
-        # Determine preliminary values for baseline and planet signal parameters:
-        p, b = self.PrepPlanetPars( self.syspars['tr_type'] )
-        nppar_total = len( p['pars_init'] ) # number of planet signal parameters
-        if self.systematics_model=='double-exponential':
+        if self.ramp_model=='DE':
             # Determine preliminary values for ramp parameters:
             r, fluxc = self.PrepRampPars()
+            nparRamp = len( r['labels'] )            
+            # Install preliminary values for baseline and planet signal parameters;
+            # note that we do not need to perform a preliminary fit for the planet
+            # signal here, as it's already been done by the white light curve fit;
+            # hence, no need to pass in fluxc:
+            p, b = self.PrepPlanetPars( self.syspars['tr_type'] )
             # Combine the ramp and baseline parameters:
-            s = { 'labels':[], 'fixed':[], 'pars_init':[], 'ixs':{} }
-            c = 0
-            for i in list( r['ixs'].keys() ):
-                rixs = r['ixs'][i]
-                bixs = b['ixs'][i]
-                s['labels'] += [ np.concatenate( [ r['labels'][rixs], \
-                                                   b['labels'][bixs] ] ) ]
-                s['fixed'] += [ np.concatenate( [ r['fixed'][rixs], \
-                                                  b['fixed'][bixs] ] ) ]
-                s['pars_init'] += [ np.concatenate( [ r['pars_init'][rixs], \
-                                                      b['pars_init'][bixs] ] ) ]
-                nspar = len( rixs )+len( bixs )
-                s['ixs'][i] = np.arange( c, c+nspar )
-                c += nspar
+            s = {} # dictionary for systematics
             for j in ['labels','fixed','pars_init']:
-                s[j] = np.concatenate( s[j] )
-        else: # the systematics are just the baseline trend
+                s[j] = np.concatenate( [ r[j], b[j] ] )
+            s['ixs'] = {}
+            for k in list( r['ixs'].keys() ):
+                rixs = r['ixs'][k]
+                bixs = b['ixs'][k] + nparRamp
+                s['ixs'][k] = np.concatenate( [ rixs, bixs ] )
+        elif self.ramp_model is None: # the systematics are just the baseline trend
+            # Determine preliminary values for baseline and planet signal parameters:
+            p, b = self.PrepPlanetPars( self.syspars['tr_type'] )
             s = b
+        else:
+            pdb.set_trace() # TODO other options, e.g. phi-polynomial.
         # Combine into global parameter list:
+        nppar_total = len( p['pars_init'] ) # number of planet signal parameters
         self.pars_init = np.concatenate( [ p['pars_init'], s['pars_init'] ] )
         self.par_labels = np.concatenate( [ p['labels'], s['labels'] ] )
         self.fixed = np.concatenate( [ p['fixed'], s['fixed'] ] )
@@ -967,11 +972,10 @@ class WFC3SpecFitAnalytic():
         c = 0
         for i in range( ndsets ):
             dset = self.dsets[i]
-            ixsi = []
             for j in range( len( self.scankeys[dset] ) ):
                 idkey = '{0}{1}'.format( dset, self.scankeys[dset][j] )
-                bixsij = nppar_total + b['ixs'][idkey]
-                ixs[idkey] = np.concatenate( [ p['ixs'][dset], bixsij ] )
+                sixsij = nppar_total + s['ixs'][idkey]
+                ixs[idkey] = np.concatenate( [ p['ixs'][dset], sixsij ] )
         self.par_ixs = ixs
         return None
     
@@ -1032,7 +1036,7 @@ class WFC3SpecFitAnalytic():
         binit = []
         c = 0 # counter
         for k in range( ndsets ):
-            pixs[self.dsets[k]] = pixsg
+            pixs[self.dsets[k]] = pixsg # planet parameter ixs for current dset
             bparsk = self.PrelimBPars( self.dsets[k] )
             blabels += [ bparsk['blabels'] ]
             bfixed = np.concatenate( [ bfixed, bparsk['bfixed'] ] )
@@ -1047,6 +1051,123 @@ class WFC3SpecFitAnalytic():
         return p, b
 
     def PrepRampPars( self ):
+        # For each scan direction, the systematics model consists of a
+        # double-exponential ramp (a1,a2,a3,a4,a5):
+        rlabels0 = [ 'a1', 'a2', 'a3', 'a4', 'a5' ]
+        # Initial values for systematics parameters:
+        rlabels = []
+        rfixed = []
+        rinit = []
+        rixs = {}
+        fluxc = {}
+        c = 0 # counter
+        ndsets = len( self.dsets )
+        # fluxc is split by dataset, not scan direction; however, it isn't
+        # actually used for specLC fits as a good estimate is already
+        # available for the psignal from the whiteLC fit:
+        for k in range( ndsets ):
+            rparsk, fluxck = self.PrelimRPars( self.dsets[k] )
+            rlabels += [ rparsk['rlabels'] ]
+            rfixed = np.concatenate( [ rfixed, rparsk['rfixed'] ] )
+            rinit = np.concatenate( [ rinit, rparsk['rpars_init'] ] )
+            for i in list( rparsk['rixs'].keys() ):
+                rixs[i] = rparsk['rixs'][i]+c
+            c += len( rparsk['rlabels'] )
+        rlabels = np.concatenate( rlabels ).flatten()
+        r = { 'labels':rlabels, 'fixed':rfixed, 'pars_init':rinit, 'ixs':rixs }
+        return r, fluxc
+    
+    def PrelimRPars( self, dataset ):
+        """
+        """
+        if len( self.scankeys[dataset] )>1:
+            if self.rampScanShare==True:
+                r, fluxc = self.PrelimRParsScanShared( dataset )
+            else:
+                r, fluxc = self.PrelimRParsScanSeparate( dataset )
+        else:
+            r, fluxc = self.PrelimRParsScanSeparate( dataset )
+        #pdb.set_trace()
+        return r, fluxc
+
+    def PrelimRParsScanSeparate( self, dataset ):
+        rlabels = []    
+        rfixed = []
+        rinit = []
+        rixs = {}
+        fluxc = {}
+        c = 0 # counter
+        ixsd = self.data_ixs
+        for k in self.scankeys[dset]:
+            ixsdk = ixsd[dset][k] # data ixs for current dataset + scan direction
+            thrsdk = self.data[:,1][ixsdk]
+            torbdk = self.data[:,2][ixsdk]
+            fluxdk = self.data[:,3][ixsdk]
+            idkey = '{0}{1}'.format( dset, k )
+            # Run a quick double-exponential ramp fit on the first
+            # and last HST orbits to get reasonable starting values
+            # for the parameters:
+            rpars0, fluxcik = self.PrelimDEFit( thrsdk, torbdk, fluxdk )
+            rinit = np.concatenate( [ rinit, rpars0 ] )
+            nrpar = len( rpars0 )
+            rixs[idkey] = np.arange( c*nrpar, (c+1)*nrpar )
+            fluxc[idkey] = fluxcik
+            rfixed = np.concatenate( [ rfixed, np.zeros( nrpar ) ] )
+            rlabels_ik = []
+            for j in range( nrpar ):
+                rlabels_ik += [ '{0}_{1}{2}'.format( rlabels0[j], dset, k ) ]
+            rlabels += [ np.array( rlabels_ik, dtype=str ) ]
+            c += 1
+        r = { 'rlabels':rlabels, 'rfixed':rfixed, 'rpars_init':rinit, 'rixs':rixs }
+        return r, fluxc
+    
+    def PrelimRParsScanShared( self, dataset ):
+        
+        ixsd = self.data_ixs
+        thrs = self.data[:,1]
+        torb = self.data[:,2]
+        flux = self.data[:,3]
+
+        # Must loop over scan directions to get fluxc right
+        # for each scan direction:
+        fluxc = np.zeros_like( flux )
+        rpars0 = {}
+        for k in self.scankeys[dataset]:
+            ixsk = ixsd[dataset][k] # data ixs for current dataset + scan direction
+            # Run a quick double-exponential ramp fit on the first and last HST
+            # orbits to get reasonable starting values for the parameters:
+            rpars0k, fluxck = self.PrelimDEFit( thrs[ixsk], torb[ixsk], flux[ixsk] )
+            # Note that the above ramp fit will perform fit with self.ttrend, 
+            # then return only the ramp parameters, but fluxc will be the flux
+            # corrected by model=ramp*ttrend, which is then used for a
+            # preliminary planet signal fit.
+            fluxc[ixsk] = fluxck
+            rpars0[k] = rpars0k
+        
+        # Forward scan is the reference:
+        rinit = rpars0['f']
+        nrpar = len( rinit )
+        rfixed = np.zeros( nrpar ) # all parameters free
+
+        # For dataset, one set of ramp parameters for both scan directions:
+        rlabels = [ 'a1_{0}'.format( dataset ), 'a2_{0}'.format( dataset ), \
+                    'a3_{0}'.format( dataset ), 'a4_{0}'.format( dataset ), \
+                    'a5_{0}'.format( dataset ) ]
+        rlabels = np.array( rlabels, dtype=str )
+
+        # The ramp parameter ixs are split by scan direction, however:
+        rixs = {}
+        for k in self.scankeys[dataset]:
+            idkey = '{0}{1}'.format( dataset, k )
+            rixs[idkey] = np.arange( 0, 0+nrpar )
+        r = { 'rlabels':rlabels, 'rfixed':rfixed, 'rpars_init':rinit, 'rixs':rixs }
+        # labels are split as only G141v1; ixs are split as G141v1f+G141v1b
+        #print( '\nTHESE SHOULD ONLY BE SPLIT AS G141V1, NOT G141V1F+G141V1B\n' )
+        #print( r['rixs'].keys() )
+        #pdb.set_trace()
+        return r, fluxc
+    
+    def PrepRampParsORIGINAL( self ):
         thrs = self.data[:,1]
         torb = self.data[:,2]
         flux = self.data[:,3]
@@ -1100,6 +1221,9 @@ class WFC3SpecFitAnalytic():
         elif self.ttrend=='quadratic':
             rfunc = UR.DERampQuadBase
             nbase = 3
+        elif self.ttrend=='exponential':
+            rfunc = UR.DERampExpBase
+            nbase = 3
         else:
             pdb.set_trace()
         orbixs = UR.SplitHSTOrbixs( thrs )
@@ -1130,7 +1254,8 @@ class WFC3SpecFitAnalytic():
             #pinit = [ (1e-3)*np.random.randn(), 0.1+0.005*np.random.random(), \
             #          (1e-3)*np.random.randn(), 0.1+0.005*np.random.random(), \
             #          (1.+0.005*np.random.random() )/60., flux[-1], 0 ]
-            if self.ttrend=='quadratic': pinit += [ 0 ]
+            if nbase==3:
+                pinit += [ 0 ]
             pfiti = scipy.optimize.fmin( CalcRMS, pinit, maxiter=1e4, xtol=1e-3, ftol=1e-4 )
             rms[i] = CalcRMS( pfiti )
             pfit += [ pfiti ]
@@ -1154,7 +1279,7 @@ class WFC3SpecFitAnalytic():
             binit0 = [ 1, 0, 0 ]
             bfixed0 = [ 0, 0, 0 ]
             blabels0 = [ 'b0', 'b1', 'b2' ]
-        elif self.ttrend=='exponential':
+        elif self.ttrend=='exp-decay':
             binit0 = [ 1, 0, 0 ]
             bfixed0 = [ 0, 0, 0 ]
             blabels0 = [ 'b0', 'b1', 'b2' ]
@@ -1215,19 +1340,14 @@ class WFC3SpecFitAnalytic():
         return b
 
     def PrelimBParsScanShared( self, dataset ):
+        
         blabels0, binit0, bfixed0 = self.InitialBPars()
         nbpar = len( binit0 )
         slcs = self.slcs[dataset]
         ixs = np.arange( slcs['jd'].size )
-        #bpars_init = []
-        #bfixed = []
-        #blabels = []
-        #bixs = {}
-        #c = 0 # counter
 
         # Forward scan is the reference:
         k = 'f'
-        idkey = '{0}{1}'.format( dataset, k )
         ixsf = self.data_ixs[dataset]['f']
         thrsf = self.data[:,1][ixsf]
         fluxf = self.data[:,3][ixsf]
@@ -1257,7 +1377,7 @@ class WFC3SpecFitAnalytic():
                         '{0}_{1}'.format( blabels0[1], dataset ), \
                         '{0}_{1}'.format( blabels0[2], dataset ), \
                         '{0}_{1}b'.format( blabels0[0], dataset ) ]
-        elif self.ttrend=='exponential':
+        elif self.ttrend=='exp-decay':
             binit = np.array( [ offsf, 0, 0, offsb ] )
             bfixed = np.array( [ 0, 0, 0, 0 ] )
             blabels = [ '{0}_{1}f'.format( blabels0[0], dataset ), \
@@ -1278,6 +1398,8 @@ class WFC3SpecFitAnalytic():
         idkey = '{0}b'.format( dataset )
         bixs[idkey][0] = nbpar # replace offset for backward scan
         b = { 'blabels':blabels, 'bfixed':bfixed, 'bpars_init':binit, 'bixs':bixs }
+        # THIS ROUTINE ABOVE DOES THE SHARING CORRECTLY...
+        #pdb.set_trace()
         return b
 
 
@@ -1439,6 +1561,15 @@ class WFC3SpecFitAnalytic():
         return None
 
     def CalcModel( self, pars ):
+        if self.ramp_model is None:
+            z = self.CalcModelNoRamp( pars )
+        elif self.ramp_model=='DE':
+            z = self.CalcModelRampDE( pars )
+        else:
+            pdb.set_trace()
+        return z
+    
+    def CalcModelNoRamp( self, pars ):
         """
         For a parameter array for a specific dataset, the parameters
         are *always* the following (at least for now):
@@ -1448,6 +1579,7 @@ class WFC3SpecFitAnalytic():
         So you can always unpack these in this order and send them as
         inputs to their appropriate functions. 
         """
+        
         if self.ttrend=='linear':
             def bfunc( thrs, pars ):
                 return pars[0] + pars[1]*thrs
@@ -1486,13 +1618,69 @@ class WFC3SpecFitAnalytic():
                         m = 4
                     else:
                         pdb.set_trace()
-                    s = 1+m # RpRs
+                    s = 1+m # RpRs, ld
                 else:
                     s = 1 # EcDepth
                 psignal[ixsdk] = pmod[idkey].light_curve( batp[idkey] )
                 # Evaluate the systematics signal:
                 ttrend[ixsdk] = bfunc( thrs[ixsdk], parsk[s:] )
         return { 'psignal':psignal, 'ttrend':ttrend }
+
+    def CalcModelRampDE( self, pars ):
+        """
+        For a parameter array for a specific dataset, the parameters
+        are *always* the following (at least for now):
+           RpRs, ldcoeff1, ..., ldcoeffN, delT, a1, a2, a3, a4, a5, b1, b2, (b3)
+        or:
+           EcDepth, a1, a2, a3, a4, a5, b1, b2, (b3)
+        So you can always unpack these in this order and send them as
+        inputs to their appropriate functions. 
+        """
+        if self.ttrend=='linear':
+            rfunc = UR.DERampLinBase
+        elif self.ttrend=='quadratic':
+            rfunc = UR.DERampQuadBase
+        elif self.ttrend=='exponential':
+            rfunc = UR.DERampExpBase
+        else:
+            pdb.set_trace()
+        ndat, nvar = np.shape( self.data )
+        batp = self.batpars
+        pmod = self.pmodels
+        psignal = np.zeros( ndat )
+        ttrend = np.zeros( ndat )
+        ramp = np.zeros( ndat )
+        jd = self.data[:,0]
+        thrs = self.data[:,1]
+        torb = self.data[:,2]
+        flux = self.data[:,3]
+        uncs = self.data[:,4]
+        ndsets = len( self.dsets )
+        self.UpdateBatpars( pars )
+        for i in range( ndsets ):
+            dset = self.dsets[i]
+            #Tmid0k = self.Tmid0[dset]
+            for k in self.scankeys[dset]:
+                idkey = '{0}{1}'.format( dset, k )
+                ixsdk = self.data_ixs[dset][k]
+                parsk = pars[self.par_ixs[idkey]]
+                if pmod[idkey].transittype==1:
+                    if batp[idkey].limb_dark=='quadratic':
+                        m = 2
+                    elif batp[idkey].limb_dark=='nonlinear':
+                        m = 4
+                    else:
+                        pdb.set_trace()
+                    s = 1+m # RpRs, ld
+                else:
+                    s = 1 # EcDepth
+                psignal[ixsdk] = pmod[idkey].light_curve( batp[idkey] )
+                # Evaluate the systematics signal:
+                tfit, rfit = rfunc( thrs[ixsdk], torb[ixsdk], parsk[s:] )
+                ttrend[ixsdk] = tfit
+                ramp[ixsdk] = rfit
+        return { 'psignal':psignal, 'ttrend':ttrend, 'ramp':ramp }
+    
 
     def CalcChi2( self ):
         pfit = self.model_fit['psignal'] # planet signal
@@ -3270,6 +3458,7 @@ class WFC3WhiteFitDE():
                 ramp[ixsdk] = rfit
         return { 'psignal':psignal, 'ttrend':ttrend, 'ramp':ramp }
 
+    
     def UpdateBatpars( self, pars ):
         batp = self.batpars
         pmod = self.pmodels

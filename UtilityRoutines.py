@@ -6,6 +6,97 @@ import numexpr
 
 
 
+def residsRMSVsBinSize( thrs, resids ):
+    """
+    Given an array of residuals, computes the rms as a function
+    of bin size. For checking how the noise bins down compared
+    to white noise expectations.
+    """
+    ndat = len( resids )
+    nbinsMin = 6 # minimum number of binned points for which to compute RMS
+    nptsMax = int( np.floor( ndat/float( nbinsMin ) ) )
+    nptsPerBin = 1+np.arange( nptsMax )
+    nbinSizes = len( nptsPerBin )
+    oixs = SplitHSTOrbixs( thrs )
+    norb = len( oixs )
+    x0 = np.arange( ndat )
+    rms = np.zeros( nbinSizes )
+    dthrs = np.median( np.diff( thrs ) )
+    tmin = np.zeros( nbinSizes )
+    #import matplotlib.pyplot as plt
+    #plt.close('all')
+    #plt.ion()
+    #plt.figure()
+    #plt.plot( thrs, resids, 'ok' )
+    
+    for i in range( nbinSizes ):
+        npts_i = nptsPerBin[i]
+        tmin[i] = npts_i*dthrs*60
+        finished = False
+        residsb = []
+        tbin = []
+        for j in range( norb ):
+            ixs = oixs[j]
+            xj = x0[ixs]
+            nj = len( xj )
+            ixl = np.arange( 0, nj, npts_i )
+            ixu = ixl+npts_i#np.arange( npts_i, nj+1 )
+            nbj = len( ixl )
+            for k in range( nbj ):
+                residsb_jk = resids[ixs][ixl[k]:ixu[k]]
+                if len( residsb_jk )!=npts_i:
+                    residsb_jk = resids[ixs][nj-npts_i:nj]
+                    #print( len( residsb_jk ), npts_i )
+                    #pdb.set_trace()
+                #print( 'aaaaa', j, len( residsb_jk ), npts_i )
+                residsb += [ np.mean( residsb_jk ) ]
+                #print( '\naaaa', j, k, ixl[k], ixu[k] )
+                #print( 'bbbbb', residsb_jk, resids[ixs][ixl[k]] )
+                #if npts_i>11:
+                #    plt.plot( thrs[ixs][ixl[k]:ixu[k]], residsb_jk, '-x' )
+                #    print( thrs[ixs][ixl[k]:ixu[k]], residsb_jk, residsb[-1] )
+                #    pdb.set_trace()
+        residsb = np.array( residsb )
+        #pdb.set_trace()
+        #while finished==False:
+        #nbins_i = int( np.floor( ndat/float( npts_i ) ) )
+        #residsb = np.zeros( nbins_i )
+        #for j in range( nbins_i ):
+        #    ix1 = j*npts_i
+        #    ix2 = (j+1)*npts_i+1
+        #    residsb[j] = np.mean( resids[ix1:ix2] )
+        rms[i] = np.sqrt( np.mean( residsb**2. ) )
+    #print( tmin )
+    #pdb.set_trace()
+    return nptsPerBin, tmin, rms
+    
+
+def residsRMSVsBinSizeBasic( resids ):
+    """
+    Given an array of residuals, computes the rms as a function
+    of bin size. For checking how the noise bins down compared
+    to white noise expectations.
+    """
+    ndat = len( resids )
+    nbinsMin = 6 # minimum number of binned points for which to compute RMS
+    nptsMax = int( np.floor( ndat/float( nbinsMin ) ) )
+    nptsPerBin = 1+np.arange( nptsMax )
+    nbinSizes = len( nptsPerBin )
+    
+    rms = np.zeros( nbinSizes )
+    for i in range( nbinSizes ):
+        npts_i = nptsPerBin[i]
+        nbins_i = int( np.floor( ndat/float( npts_i ) ) )
+        residsb = np.zeros( nbins_i )
+        for j in range( nbins_i ):
+            ix1 = j*npts_i
+            ix2 = (j+1)*npts_i+1
+            residsb[j] = np.mean( resids[ix1:ix2] )
+        rms[i] = np.sqrt( np.mean( residsb**2. ) )
+    #pdb.set_trace()
+    return nptsPerBin, rms
+    
+
 def rvFunc( t, a1, a2 ):
     """
     Within the context of the detector charge-trapping model,

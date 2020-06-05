@@ -933,6 +933,61 @@ class WFC3SpecFitAnalytic():
         each individual dataset onto the joint parameter list that gets
         passed to mpfit.
         """
+        ndsets = len( self.dsets )
+        # Determine preliminary values for baseline and planet signal parameters:
+        p, b = self.PrepPlanetPars( self.syspars['tr_type'] )
+        nppar_total = len( p['pars_init'] ) # number of planet signal parameters
+        if self.systematics_model=='double-exponential':
+            # Determine preliminary values for ramp parameters:
+            r, fluxc = self.PrepRampPars()
+            # Combine the ramp and baseline parameters:
+            s = { 'labels':[], 'fixed':[], 'pars_init':[], 'ixs':{} }
+            c = 0
+            for i in list( r['ixs'].keys() ):
+                rixs = r['ixs'][i]
+                bixs = b['ixs'][i]
+                s['labels'] += [ np.concatenate( [ r['labels'][rixs], \
+                                                   b['labels'][bixs] ] ) ]
+                s['fixed'] += [ np.concatenate( [ r['fixed'][rixs], \
+                                                  b['fixed'][bixs] ] ) ]
+                s['pars_init'] += [ np.concatenate( [ r['pars_init'][rixs], \
+                                                      b['pars_init'][bixs] ] ) ]
+                nspar = len( rixs )+len( bixs )
+                s['ixs'][i] = np.arange( c, c+nspar )
+                c += nspar
+            for j in ['labels','fixed','pars_init']:
+                s[j] = np.concatenate( s[j] )
+        else: # the systematics are just the baseline trend
+            s = b
+        # Combine into global parameter list:
+        self.pars_init = np.concatenate( [ p['pars_init'], s['pars_init'] ] )
+        self.par_labels = np.concatenate( [ p['labels'], s['labels'] ] )
+        self.fixed = np.concatenate( [ p['fixed'], s['fixed'] ] )
+        ixs = {}
+        c = 0
+        for i in range( ndsets ):
+            dset = self.dsets[i]
+            ixsi = []
+            for j in range( len( self.scankeys[dset] ) ):
+                idkey = '{0}{1}'.format( dset, self.scankeys[dset][j] )
+                bixsij = nppar_total + b['ixs'][idkey]
+                ixs[idkey] = np.concatenate( [ p['ixs'][dset], bixsij ] )
+        self.par_ixs = ixs
+        return None
+    
+    def PrepModelParamsORIGINAL( self ):
+        """
+        Sets up the arrays organizing the parameters in a format that can
+        then be used with mpfit. Returns:
+        'labels' - A list of strings giving the names of each parameter.
+        'fixed' - An array of 1's and 0's indicating which parameters are
+        held fixed and which are allowed to vary, as per the 'case' input.
+        'pars_init' - An array containing the default starting values
+        for each parameter.
+        'ixs' - A dictionary containing indices that map the parameters from
+        each individual dataset onto the joint parameter list that gets
+        passed to mpfit.
+        """
         #dsets = list( self.wlcs.keys() )
         ndsets = len( self.dsets )
         # Determine preliminary values for baseline and planet parameters:
@@ -991,6 +1046,102 @@ class WFC3SpecFitAnalytic():
         b = { 'labels':blabels, 'fixed':bfixed, 'pars_init':binit, 'ixs':bixs }
         return p, b
 
+    def PrepRampPars( self ):
+        thrs = self.data[:,1]
+        torb = self.data[:,2]
+        flux = self.data[:,3]
+        ixsd = self.data_ixs
+        # For each scan direction, the systematics model consists of a
+        # double-exponential ramp (a1,a2,a3,a4,a5):
+        rlabels0 = [ 'a1', 'a2', 'a3', 'a4', 'a5' ]
+        # Initial values for systematics parameters:
+        rlabels = []
+        rfixed = []
+        rinit = []
+        rixs = {}
+        fluxc = {}
+        c = 0 # counter
+        #dsets = list( self.wlcs.keys() )
+        ndsets = len( self.dsets )
+        for i in range( ndsets ):
+            dset = self.dsets[i]
+            for k in self.scankeys[dset]:
+                ixsdk = ixsd[dset][k]
+                idkey = '{0}{1}'.format( dset, k )
+                # Run a quick double-exponential ramp fit on the first
+                # and last HST orbits to get reasonable starting values
+                # for the parameters:
+                rpars0, fluxcik = self.PrelimDEFit( thrs[ixsdk], torb[ixsdk], \
+                                                    flux[ixsdk] )
+                rinit = np.concatenate( [ rinit, rpars0 ] )
+                nrpar = len( rpars0 )
+                rixs[idkey] = np.arange( c*nrpar, (c+1)*nrpar )
+                fluxc[idkey] = fluxcik
+                rfixed = np.concatenate( [ rfixed, np.zeros( nrpar ) ] )
+                rlabels_ik = []
+                for j in range( nrpar ):
+                    rlabels_ik += [ '{0}_{1}{2}'.format( rlabels0[j], dset, k ) ]
+                rlabels += [ np.array( rlabels_ik, dtype=str ) ]
+                c += 1
+        rlabels = np.concatenate( rlabels )
+        r = { 'labels':rlabels, 'fixed':rfixed, 'pars_init':rinit, 'ixs':rixs }
+        print( 'rinit', rinit )
+        #pdb.set_trace()
+        return r, fluxc
+
+    def PrelimDEFit( self, thrs, torb, flux ):
+        """
+        Performs preliminary fit for the ramp systematics, only
+        fitting to the first and last HST orbits.
+        """
+        if self.ttrend=='linear':
+            rfunc = UR.DERampLinBase
+            nbase = 2
+        elif self.ttrend=='quadratic':
+            rfunc = UR.DERampQuadBase
+            nbase = 3
+        else:
+            pdb.set_trace()
+        orbixs = UR.SplitHSTOrbixs( thrs )
+        ixs = np.concatenate( [ orbixs[0], orbixs[-1] ] )
+        def CalcRMS( pars ):
+            ttrend, ramp = rfunc( thrs[ixs], torb[ixs], pars )
+            resids = flux[ixs]-ttrend*ramp
+            rms = np.sqrt( np.mean( resids**2. ) )
+            return rms
+        ntrials = 30
+        rms = np.zeros( ntrials )
+        pfit = []
+        for i in range( ntrials ):
+            print( i )
+            b0i = flux[-1]
+            #b0i = np.median( flux )
+            b1i = 0
+            # These starting values seem to produce reasonable results:
+            a1b = 1e-3
+            a2i = 1
+            a3b = 1e-3
+            a4i = 0.01
+            a5i = 0.001
+            bb = 0.1
+            pinit = [ a1b*np.random.randn(), a2i*( 1+bb*np.random.randn() ), \
+                      a3b*np.random.randn(), a4i*( 1+bb*np.random.randn() ), \
+                      a5i*( 1+bb*np.random.randn() ), b0i, b1i ]
+            #pinit = [ (1e-3)*np.random.randn(), 0.1+0.005*np.random.random(), \
+            #          (1e-3)*np.random.randn(), 0.1+0.005*np.random.random(), \
+            #          (1.+0.005*np.random.random() )/60., flux[-1], 0 ]
+            if self.ttrend=='quadratic': pinit += [ 0 ]
+            pfiti = scipy.optimize.fmin( CalcRMS, pinit, maxiter=1e4, xtol=1e-3, ftol=1e-4 )
+            rms[i] = CalcRMS( pfiti )
+            pfit += [ pfiti ]
+        pbest = pfit[np.argmin(rms)]            
+        a1, a2, a3, a4, a5 = pbest[:-nbase]
+        rpars = [ a1, a2, a3, a4, a5 ]
+        tfit, rfit = rfunc( thrs, torb, pbest )
+        #fluxc = flux/( tfit*rfit )
+        fluxc = flux/rfit
+        return rpars, fluxc
+
     def InitialBPars( self ):
         """
         Returns clean starting arrays for baseline trend arrays.
@@ -1013,7 +1164,7 @@ class WFC3SpecFitAnalytic():
         """
         """
         if len( self.scankeys[dataset] )>1:
-            if self.baselineScanShare==True: # TESTING
+            if self.baselineScanShare==True:
                 b = self.PrelimBParsScanShared( dataset )
             else:
                 b = self.PrelimBParsScanSeparate( dataset )
@@ -1795,7 +1946,7 @@ class WFC3WhiteFitDE():
         r, fluxc = self.PrepRampPars()
         # Determine preliminary values for baseline and planet parameters:
         p, b = self.PrepPlanetPars( self.syspars['tr_type'], fluxc )
-        nppar_total = len( p['pars_init'] )
+        nppar_total = len( p['pars_init'] ) # number of planet signal parameters
         # Combine the ramp and baseline parameters:
         s = { 'labels':[], 'fixed':[], 'pars_init':[], 'ixs':{} }
         c = 0

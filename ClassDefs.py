@@ -6351,7 +6351,7 @@ class WFC3Spectra():
                 wavL = np.max( wavMicr2dMap[k][:,0,i] )
                 wavU = np.max( wavMicr2dMap[k][:,ndisp-1,i] )
                 wavki = np.linspace( wavL, wavU, ndisp ) # interpolation grid
-                dwavdxCommon = np.diff( dwavki )
+                dwavdxCommon = np.diff( wavki )
                 dwavdx = self.spectraDrifting['dwavdx'][k][i,:]
                 if ( cdcs[i]>=0 )*( cdcs[i]<ncross ):
                     # Determine the cross-dispersion coordinates between

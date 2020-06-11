@@ -1,7 +1,7 @@
 import pdb, sys, os, glob, pickle, time, re
 import copy
 import numpy as np
-import scipy.ndimage, scipy.interpolate, scipy.optimize
+import scipy.ndimage, scipy.interpolate, scipy.optimize, scipy.integrate
 import astropy.io.fits as pyfits
 import matplotlib
 import matplotlib.pyplot as plt
@@ -5351,7 +5351,7 @@ class WFC3WhiteLightCurve():
             self.whitelc[k]['auxvars'] = spec1d['spectra'][k]['auxvars']
             wavmicr = spec1d['spectra'][k]['wavmicr'][d1:d2+1]
             ecounts1d = spec1d['spectra'][k]['ecounts1d'][:,d1:d2+1]
-            ncross, ndisp = np.shape( ecounts1d )
+            nframes, ndisp = np.shape( ecounts1d )
             xdisp = np.arange( ndisp )
             if self.wavmicr_range=='all':
                 self.wavmicr_range = [ wavmicr.min(), wavmicr.max() ]
@@ -5366,11 +5366,62 @@ class WFC3WhiteLightCurve():
             self.whitelc[k]['uncs_electrons'] = np.sqrt( flux )
             self.whitelc[k]['flux'] = flux/fluxn
             self.whitelc[k]['uncs'] = np.sqrt( flux )/fluxn
+        # Check if spectra object contains arrays accounting for the
+        # drift of the target during spatial scanning:
+        if 'spectraDrifting' in spec1d:
+            self.CreateDrifting( spec1d )
         #self.GetLD( spec1d )
         self.GetLD( spec1d['config'] )
         self.Save()
         return None
-
+    
+    def CreateDrifting( self, spec1d ):
+        d1, d2 = spec1d['trim_box'][1]
+        self.whitelcDrifting = {}
+        for k in self.rkeys:
+            self.whitelcDrifting[k] = {}
+            self.whitelcDrifting[k]['auxvars'] = spec1d['spectra'][k]['auxvars']
+            wavmicr = spec1d['spectraDrifting']['wavMicr'][k]#[d1:d2+1]
+            # Not actually sure if these units are electrons after the
+            # processing performed in extracting the spectraDrifting:
+            ecounts1d = spec1d['spectraDrifting']['ecounts1d'][k]#[:,d1:d2+1]
+            nframes, ndisp = np.shape( ecounts1d )
+            xdisp = np.arange( ndisp )
+            if self.wavmicr_range=='all':
+                self.wavmicr_range = [ wavmicr.min(), wavmicr.max() ]
+                flux = np.sum( ecounts1d, axis=1 )
+            else:
+                flux = np.zeros( nframes )
+                fluxQ = np.zeros( nframes )                
+                wavL = self.wavmicr_range[0]
+                wavU = self.wavmicr_range[1]
+                for i in range( nframes ):
+                    ixs = ( wavmicr[i,:]>=wavL )*( wavmicr[i,:]<=wavU )
+                    flux[i] = scipy.integrate.trapz( ecounts1d[i,ixs], x=wavmicr[i,ixs] )
+                    # Use numerical quadrature; gives basically same answer but slower:
+                    interpf = scipy.interpolate.interp1d( wavmicr[i,:], ecounts1d[i,:] )
+                    fluxQ[i] = scipy.integrate.quad( interpf, wavL, wavU )[0] # Slow...
+                    print( 'oooo', i, ixs.sum() )
+            fluxn = flux[-1]
+            # Not sure if these units are technically electrons:
+            self.whitelcDrifting[k]['flux_electrons_maybe'] = flux
+            self.whitelcDrifting[k]['uncs_electrons_maybe'] = np.sqrt( flux )
+            self.whitelcDrifting[k]['flux'] = flux/fluxn
+            self.whitelcDrifting[k]['uncs'] = np.sqrt( flux )/fluxn
+            if k=='rdiff_zap':
+                plt.ion()
+                plt.figure()
+                ff = np.sum( ecounts1d, axis=1 )
+                ff /= ff[-1]
+                fluxQ /= fluxQ[-1]
+                plt.plot( self.jd, self.whitelc[k]['flux'], 'or' )
+                plt.plot( self.jd, self.whitelcDrifting[k]['flux']+0.003, 'ok' )
+                plt.plot( self.jd, fluxQ+0.003, '^c' )
+                #plt.plot( self.jd, ff, 'xg' )
+                pdb.set_trace()
+            
+        return None
+    
     def GetLD( self, config ):
         atlas = AtlasModel()
         atlas.fpath = self.atlas_fpath
@@ -6300,6 +6351,8 @@ class WFC3Spectra():
                 wavL = np.max( wavMicr2dMap[k][:,0,i] )
                 wavU = np.max( wavMicr2dMap[k][:,ndisp-1,i] )
                 wavki = np.linspace( wavL, wavU, ndisp ) # interpolation grid
+                dwavdxCommon = np.diff( dwavki )
+                dwavdx = self.spectraDrifting['dwavdx'][k][i,:]
                 if ( cdcs[i]>=0 )*( cdcs[i]<ncross ):
                     # Determine the cross-dispersion coordinates between
                     # which the integration will be performed:
@@ -6316,8 +6369,11 @@ class WFC3Spectra():
                         rix = rows[r]
                         xr = wavMicr2dMap[k][rix,:,i]
                         yr = e2di[rix,:]
-                        e2dAligned[r,:] = np.interp( wavki, xr, yr )
-                        
+                        # Since the dispersion varies for each row, an adjustment
+                        # should be applied when we interpolate onto a common
+                        # wavelength grid for all rows:
+                        adjust = dwavdx[i,rix]/float( dwavdxCommon )
+                        e2dAligned[r,:] = adjust*np.interp( wavki, xr, yr )
                     e1dk[i,:] = np.sum( e2dAligned, axis=cross_axis )
                     # Determine partial rows at edge of the aperture and
                     # add their weighted contributions to the flux:

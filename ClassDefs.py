@@ -5955,7 +5955,7 @@ class WFC3Spectra():
             self.spectra[k]['auxvars']['bg_ppix'] = []
         self.scandirs = []
         ima_fpaths = []
-        self.nframes = 2#50 # DELETE
+        #self.nframes = 2#50 # for testing...
         for i in range( self.nframes ):
             hdu = pyfits.open( self.ima_fpaths[i] )
             h0 = hdu[0].header

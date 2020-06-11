@@ -1,7 +1,7 @@
 import pdb, sys, os, glob, pickle, time, re
 import copy
 import numpy as np
-import scipy.ndimage, scipy.interpolate
+import scipy.ndimage, scipy.interpolate, scipy.optimize
 import astropy.io.fits as pyfits
 import matplotlib
 import matplotlib.pyplot as plt
@@ -12,6 +12,7 @@ from bayes.gps_dev.gps import gp_class, kernels
 from . import UtilityRoutines as UR
 from . import Systematics
 from .mpfit import mpfit
+import pysynphot
 
 try:
     os.environ['DISPLAY']
@@ -5549,6 +5550,7 @@ class WFC3Spectra():
         self.SumSpatScanSpectra( ecounts2d )
         self.InstallBandpass()
         self.GetWavSol()
+        self.extractDriftSpectra( ecounts2d, 'rdiff_zap' )
         self.ZapBadPix1D()
         self.ShiftStretch()
         self.SaveEcounts2D( ecounts2d )
@@ -5610,6 +5612,7 @@ class WFC3Spectra():
 
     
     def ShiftStretch( self ):
+        
         dpix_max = 1
         dwav_max = dpix_max*self.dispersion_micrppix
         nshifts = int( np.round( 2*dpix_max*(1e3)+1 ) ) # 0.001 pix
@@ -5718,7 +5721,7 @@ class WFC3Spectra():
         return shiftsf[ixf], vstretchesf[ixf], ss_fits[ix,:], diffsarr[ix,:], diffs0
 
 
-    def LoadBTSettl( self ):
+    def LoadBTSettl( self ): # THIS ROUTINE SHOULD BE REDUNDANT WITH PYSYNPHOT
         if os.path.isfile( self.btsettl_fpath )==False:
             print( '\nCould not find:\n{0}\n'.format( self.btsettl_fpath ) )
             pdb.set_trace()
@@ -5753,9 +5756,8 @@ class WFC3Spectra():
             wbp = self.bandpass_wavmicr # old tr_wavs
             ybp = self.bandpass_thput # old tr_vals
             dwbp = np.median( np.diff( wbp ) )
-            self.LoadBTSettl()
-            wstar = self.btsettl_spectrum['wavmicr']
-            ystar = self.btsettl_spectrum['flux']
+            wstar, flam, photlam = self.loadStellarModel()
+            ystar = flam
             # Interpolate the stellar model onto the transmission wavelength grid:
             ixs = ( wstar>wbp[0]-0.1 )*( wstar<wbp[-1]+0.1 )
             ystar_interp = np.interp( wbp, wstar[ixs], ystar[ixs] )
@@ -5953,7 +5955,7 @@ class WFC3Spectra():
             self.spectra[k]['auxvars']['bg_ppix'] = []
         self.scandirs = []
         ima_fpaths = []
-        #self.nframes = 10 # DELETE
+        self.nframes = 2#50 # DELETE
         for i in range( self.nframes ):
             hdu = pyfits.open( self.ima_fpaths[i] )
             h0 = hdu[0].header
@@ -5996,7 +5998,216 @@ class WFC3Spectra():
             ecounts2d[k] = np.dstack( ecounts2d[k] )[:,:,ixs]
         return ecounts2d
 
+    def extractDriftSpectra( self, ecounts2dRaw, analysis ):
+        """
+        Solves for 
+        """
+        #cross_axis = 0
+        #disp_axis = 1
+        #frame_axis = 2
+        self.spectraDrifting = {}
+        self.spectraDrifting['dxPix'] = {}
+        self.spectraDrifting['wavMicr'] = {}
+        self.spectraDrifting['ecounts1d'] = {}
+        self.spectraDrifting['crossdispRowIxs'] = {}
+        self.spectraDrifting['wavMicr0'] = {}
+        self.spectraDrifting['dwavdx'] = {}
+        self.spectraDrifting['vstretch'] = {}
+        self.spectraDrifting['modelSpectrum'] = {}
+        wavMicr2dMap = {}
+        ecounts2dDrift = {}
+        for k in self.rkeys:
+            z = self.solveWavDrifting( ecounts2dRaw, k )
+            wavMicr2dMap[k] = z[0]
+            ecounts2dDrift[k] = z[1]
+        self.SumSpatScanSpectraDrifting( wavMicr2dMap, ecounts2dDrift, ecounts2dRaw )
+        return None
+
+        
+    def solveWavDrifting( self, ecounts2d, analysis ):
+        
+        # Approximate dispersion of WFC3 grism:
+        dwavdx_guess = self.dispersion_nmppix*(1e-3) # convert to micron/pixel
+        
+        # Trim the data cube, as specified by input settings:
+        j0 = self.trim_crossdisp_ixs[0]
+        j1 = self.trim_crossdisp_ixs[1]
+        k0 = self.trim_disp_ixs[0]
+        k1 = self.trim_disp_ixs[1]
+        e2dtrim = ecounts2d[analysis][j0:j1+1,k0:k1+1,:]
+
+        # Unpack data cube dimensions into variables:
+        z = np.shape( e2dtrim )
+        ncross = z[0]
+        ndisp = z[1]
+        nframes = z[2]
+
+        # Cross-disperions rows to determine wavelength mappings for:
+        ix1 = self.crossdispRowBounds[0]-j0
+        ix2 = self.crossdispRowBounds[1]-j0
+        njump = 20 # number of cross-dispersion rows to jump
+        rixs = np.arange( ix1, ix2, njump )
+        nrows = len( rixs )
+                                      
+        # Coordinates for the detector pixels:
+        xPix = np.arange( ndisp )
+
+        # Read in the instrument throughput:
+        bpWavMicr0 = self.bandpass_wavmicr
+        bpThPut0 = self.bandpass_thput
+
+        # Read in the stellar model using the HAT-P-32 properties:
+        modWavMicr, flam, photlam = self.loadStellarModel()
+        ixs = ( modWavMicr>=bpWavMicr0.min() )*( modWavMicr<=bpWavMicr0.max() )
+        modWavMicr = modWavMicr[ixs]
+        flam = flam[ixs] # flux in flam units (see pysynphot docs)
+        photlam = photlam[ixs] # flux in photlam units (see pysynphot docs)
+
+        # Interpolate the instrument bandpass onto the stellar model wavelengths:
+        bpWavMicr = modWavMicr
+        bpThPut = np.interp( bpWavMicr, bpWavMicr0, bpThPut0 )
+        
+        # Create a model data spectrum, as it would be measured by the instrument:
+        fmod0 = bpThPut*flam # i.e. modulate spectrum by instrument throughput
+        #fmod0 = thput*photlam # or should it be this?
+        #fmod0 = thput*photlam*wbpA # or should it be this? etc ...
+        fmod0 /= fmod0.max() # normalize
+        
+        # Generate interpolation function for the normalized model:
+        interpMod = scipy.interpolate.interp1d( bpWavMicr, fmod0 )
+        modelSpectrum = { 'wavMicr':bpWavMicr, 'normalizedFlux':fmod0 }
+        
+        # Wavelength corresponding to the model peak:
+        w0_guess = bpWavMicr[np.argmax(fmod0)]
+
+        # Set zero point of the pixel coordinates using the first frame:
+        fmed = np.median( e2dtrim[rixs[0]:rixs[-1],:,0], axis=0 )
+        x0 = xPix[np.argmax(fmed)] # ensures w0_guess and dwavdx_guess close to correct
+        dxPix = xPix-x0
+        
+        # Loop over each data frame one at a time:
+        wavMicr2dMap = np.zeros( [ ncross, ndisp, nframes ] )
+        wavMicr0 = np.zeros( [ nframes, ncross ] )
+        dwavdx = np.zeros( [ nframes, ncross ] )
+        vstretch = np.zeros( [ nframes, nrows ] )
+        rms = np.zeros( [ nframes, nrows ] )
+        rowVar = np.arange( ncross ) # row indices for full array
+        #rowVar = np.arange( j0, j0+ncross ) # row indices for full array
+        ofull = np.ones( ncross ) # constant offset array for full array
+        ofit = np.ones( nrows ) # constant offset array for row subset
+        for i in range( nframes ):
+            print( i+1, nframes )
+            e2di = e2dtrim[:,:,i]                        
+            ffit = np.zeros( [ nrows, ndisp ] )
+            # Loop over each cross-dispersion row within the current data frame:
+            for j in range( nrows ):
+                # Measured electron counts (?) for ith frame
+                fmeas = e2di[rixs[j],:]
+                fmeas = fmeas/fmeas.max() # normalize                
+                # Cross-correlate to refine match:
+                zj = self.crossCorrelate( bpWavMicr, fmod0, interpMod, fmeas, \
+                                          dxPix, w0_guess, dwavdx_guess )
+                ffit[j,:] = zj[1]
+                wavMicr0[i,rixs[j]] = zj[2]
+                dwavdx[i,rixs[j]] = zj[3]
+                vstretch[i,j] = zj[4]
+                rms[i,j] = zj[5]
+            # Linear trend for both zero wavelength and dispersion:
+            Bfit = np.column_stack( [ ofit, rixs ] )#, rixs**2. ] )
+            Bfull = np.column_stack( [ ofull, rowVar ] )#, rowVar**2.] )
+            coeffs1 = np.linalg.lstsq( Bfit, wavMicr0[i,rixs] )[0]
+            coeffs2 = np.linalg.lstsq( Bfit, dwavdx[i,rixs] )[0]
+            wavMicr0[i,:] = np.dot( Bfull, coeffs1 ) # wavMicr0 across all rows
+            dwavdx[i,:] = np.dot( Bfull, coeffs2 ) # dwavdx across all rows
+            # Wavelength solution for each row of e2dtrim:
+            for j in range( ncross ):
+                wavMicr2dMap[j,:,i] = wavMicr0[i,j] + dwavdx[i,j]*dxPix
+        self.spectraDrifting['dxPix'][analysis] = dxPix
+        #self.spectraDrifting['wavMicr2dMap'][analysis] = wavMicr
+        #self.spectraDrifting['ecounts2d'][analysis] = e2dtrim
+        self.spectraDrifting['crossdispRowIxs'][analysis] = rowVar+j0
+        self.spectraDrifting['wavMicr0'][analysis] = wavMicr0
+        self.spectraDrifting['dwavdx'][analysis] = dwavdx
+        self.spectraDrifting['vstretch'][analysis] = vstretch
+        self.spectraDrifting['modelSpectrum'] = modelSpectrum
+        return wavMicr2dMap, e2dtrim
     
+    def loadStellarModel( self ):
+        T = self.star['Teff']
+        MH = self.star['MH']
+        logg = self.star['logg']
+        sp = pysynphot.Icat( 'k93models', T, MH, logg )
+        wavA = sp.wave # A
+        flam = sp.flux # erg s^-1 cm^-2 A^-1
+        sp.convert( 'photlam' )
+        photlam = sp.flux
+        c = pysynphot.units.C
+        h = pysynphot.units.H
+        ePhot = h*c/wavA
+        myPhotlam = flam/ePhot
+        wavMicr = wavA*(1e-10)*(1e6)
+        ixs = ( wavMicr>0.2 )*( wavMicr<6 )
+        wavMicr = wavMicr[ixs]
+        flam = flam[ixs]
+        photlam = photlam[ixs]
+        return wavMicr, flam, photlam
+                
+    def crossCorrelate( self, wmod0, fmod0, interpMod, fdatnj, dx, \
+                        w0_guess, dwavdx_guess ):
+        """
+        (wmod0,fmod0) - Model spectrum evaluated for bandpass wavelengths.
+        interpMod - Interpolation function for (wmod0,fmod0)
+        fdatnj - Measured spectrum across full dispersion axis.
+        dx - Relative pixel coordinate across full dispersion axis.
+        w0_guess - Approximate wavelength corresponding to dx=0.
+        dwavdx_guess - Approximate dispersion.
+        """
+        def calcNewSpec( pars ):
+            # Wavelength solution for dispersion pixels:
+            w = pars[0] + pars[1]*dx
+            # Only consider wavelengths covered by model:
+            ixs = ( w>=wmod0.min() )*( w<=wmod0.max() )
+            nx = int( ixs.sum() )
+            ftargn = np.reshape( fdatnj[ixs], [ nx, 1 ] )
+            # Interpolate model function onto those wavelengths:
+            fmodn0 = np.reshape( interpMod( w[ixs] ), [ nx, 1 ] )
+            vstretch = np.linalg.lstsq( ftargn, fmodn0 )[0]
+            ftargn = np.dot( ftargn, vstretch ).flatten()
+            return w[ixs], fmodn0.flatten(), ixs, float( vstretch )
+        def calcRMS( pars ):
+            w, fmodn, ixs, vstretch = calcNewSpec( pars )
+            ffit = fdatnj[ixs]*vstretch
+            resids = ffit-fmodn
+            rms = np.sqrt( np.mean( resids**2. ) )
+            return rms
+        pinit = [ w0_guess, dwavdx_guess ]
+        t1 = time.time()
+        pfit = scipy.optimize.fmin( calcRMS, pinit, disp=False )
+        t2 = time.time()
+        #print( t2-t1 )
+        wavMap, fmod, ixs, vstretch = calcNewSpec( pfit )
+        rms = calcRMS( pfit )
+        ffit = fdatnj*vstretch
+        wav0 = pfit[0]
+        dwavdx = pfit[1]
+        wavMapFull = wav0 + dwavdx*dx
+        # DELETE: this confirms that all these wavelengths line up nicely
+        if 0:
+            plt.ion()
+            plt.figure()
+            plt.plot( wavMap, fmod, '-c', lw=2, zorder=0, \
+                      label='Model at wavelengths determined for data' )
+            plt.plot( wmod0, fmod0, '--b', lw=2, zorder=1, \
+                      label='Model true' )
+            plt.plot( wavMapFull, fdatnj, '-k', lw=1, zorder=3, \
+                      label='Data assuming those wavelengths' )
+            plt.plot( wavMap, fdatnj[ixs], '--r', lw=1, zorder=4, \
+                      label='Data assuming those wavelengths' )
+            plt.title( 'DO THEY AGREE?' )
+            pdb.set_trace()
+        return wavMapFull, ffit, wav0, dwavdx, vstretch, rms
+
+        
     def SumSpatScanSpectra( self, ecounts2d ):
         """
         Determines the spatial scan centers and extracts the spectra
@@ -6010,7 +6221,6 @@ class WFC3Spectra():
         frame_axis = 2
         for k in self.rkeys:
             print( '\n{0}\nExtracting 1D spectra for {1}:'.format( 50*'#', k ) )
-            #e2d = self.spectra[k]['ecounts2d']
             e2d = ecounts2d[k]
             ninterp = int( 1e4 )
             z = np.shape( e2d )
@@ -6020,8 +6230,6 @@ class WFC3Spectra():
             e1d = np.zeros( [ nframes, ndisp ] )
             cdcs = np.zeros( nframes )
             x = np.arange( ncross )
-            #nf = int( ninterp*len( x ) )
-            #xf = np.r_[ x.min():x.max():1j*nf ]
             for i in range( nframes ):
                 print( '{0} ... image {1} of {2}'.format( k, i+1, nframes ) )
                 e2di = e2d[:,:,i]
@@ -6044,18 +6252,6 @@ class WFC3Spectra():
                     if ixs_full[-1]!=True:
                         xupp_partial = xmax - xmax_full
                         e1d[i,:] += xupp_partial*e2di[xmax_full+1,:]
-                    # TESTING:
-                    plt.figure()
-                    oname = self.ima_fpaths[i].replace( '.fits', '.pdf' )
-                    opath = os.path.join( self.reductionFigs_dir, oname )
-                    plt.imshow( e2di, interpolation='nearest', aspect='auto' )
-                    plt.axhline( cdcs[i], ls='--', c='m' )
-                    plt.axhline( xmin, ls='-', c='c' )
-                    plt.axhline( xmax, ls='-', c='c' )
-                    plt.colorbar()
-                    plt.savefig( opath )
-                    print( opath )
-                    #pdb.set_trace()
                 else:
                     e1d[i,:] = -1
             self.spectra[k]['auxvars']['cdcs'] = cdcs
@@ -6063,11 +6259,98 @@ class WFC3Spectra():
         return None
 
     
+    def SumSpatScanSpectraDrifting( self, wavMicr2dMap, ecounts2d, ecounts2dRaw ):
+        """
+        Determines the spatial scan centers and extracts the spectra
+        by integrating within specified aperture.
+        """
+        
+        w0 = self.spectraDrifting['modelSpectrum']['wavMicr']
+        f0 = self.spectraDrifting['modelSpectrum']['normalizedFlux']
+        
+        cross_axis = 0
+        disp_axis = 1
+        frame_axis = 2
+        self.spectraDrifting['wavMicr'] = {}
+        self.spectraDrifting['ecounts1d'] = {}
+        for k in self.rkeys:
+            print( '\n{0}\nExtracting 1D spectra for {1}:'.format( 50*'#', k ) )
+            ninterp = int( 1e4 )
+            e2dRaw = ecounts2dRaw[k]
+            e2d = ecounts2d[k]
+            z = np.shape( e2d )
+            ncross = z[cross_axis]
+            ndisp = z[disp_axis]
+            nframes = z[frame_axis]
+            e1dk = np.zeros( [ nframes, ndisp ] )
+            # Use same cdcs as determined for standard spectra,
+            # to allow for direct comparison:
+            j0 = self.trim_crossdisp_ixs[0]
+            j1 = self.trim_crossdisp_ixs[1]
+            k0 = self.trim_disp_ixs[0]
+            k1 = self.trim_disp_ixs[1]
+            cdcs = self.spectra[k]['auxvars']['cdcs']-j0
+            cdcsRaw = self.spectra[k]['auxvars']['cdcs']
+            x = np.arange( ncross )
+            wavInterpk = np.zeros( [ nframes, ndisp ] )        
+            for i in range( nframes ):
+                print( '{0} ... image {1} of {2}'.format( k, i+1, nframes ) )
+                e2di = e2d[:,:,i]
+                # Wavelength to interpolate each cross-dispersion row between:
+                wavL = np.max( wavMicr2dMap[k][:,0,i] )
+                wavU = np.max( wavMicr2dMap[k][:,ndisp-1,i] )
+                wavki = np.linspace( wavL, wavU, ndisp ) # interpolation grid
+                if ( cdcs[i]>=0 )*( cdcs[i]<ncross ):
+                    # Determine the cross-dispersion coordinates between
+                    # which the integration will be performed:
+                    xmin = max( [ 0, cdcs[i]-self.apradius ] )
+                    xmax = min( [ cdcs[i]+self.apradius, ncross ] )
+                    # Sum rows fully contained within aperture:
+                    xmin_full = int( np.ceil( xmin ) )
+                    xmax_full = int( np.floor( xmax ) )
+                    ixs_full = ( x>=xmin_full )*( x<=xmax_full )
+                    rows = x[ixs_full]
+                    nrows = len( rows )
+                    e2dAligned = np.zeros( [ nrows, ndisp ] )
+                    for r in range( nrows ):
+                        rix = rows[r]
+                        xr = wavMicr2dMap[k][rix,:,i]
+                        yr = e2di[rix,:]
+                        e2dAligned[r,:] = np.interp( wavki, xr, yr )
+                        
+                    e1dk[i,:] = np.sum( e2dAligned, axis=cross_axis )
+                    # Determine partial rows at edge of the aperture and
+                    # add their weighted contributions to the flux:
+                    if ixs_full[0]!=True:
+                        xlow_partial = xmin_full - xmin
+                        ixLow = rows[0]-1
+                        xr = wavMicr2dMap[k][ixLow,:,i]
+                        yr = e2di[ixLow,:]
+                        e1dLow = np.interp( wavki, xr, yr )
+                        e1dk[i,:] += xlow_partial*e1dLow
+                    if ixs_full[-1]!=True:
+                        xupp_partial = xmax - xmax_full
+                        ixUpp = rows[-1]+1
+                        xr = wavMicr2dMap[k][ixUpp,:,i]
+                        yr = e2di[ixUpp,:]
+                        e1dUpp = np.interp( wavki, xr, yr )
+                        e1dk[i,:] += xupp_partial*e1dUpp
+                else:
+                    e1dk[i,:] = -1
+                wavInterpk[i,:] = wavki
+            #self.spectra[k]['auxvars']['cdcs'] = cdcs
+            self.spectraDrifting['wavMicr'][k] = wavInterpk
+            self.spectraDrifting['ecounts1d'][k] = e1dk
+        return None
+
+    
     def DetermineScanCenter( self, ecounts2d ):
         """
         Estimate the center of the scan for purpose of applying mask.
         """
-        x = np.arange( self.nscan )
+        nscan, ndisp = np.shape( ecounts2d )
+        #x = np.arange( self.nscan )
+        x = np.arange( nscan )
         ninterp = 10000
         nf = int( ninterp*len( x ) )
         xf = np.linspace( self.trim_box[0][0], self.trim_box[0][1], nf )
@@ -6155,27 +6438,6 @@ class WFC3Spectra():
                 e1 = e1_withBG - bg1
                 e2 = e2_withBG - bg2
                 rdiff_ecounts[:,:,j] = e2-e1
-                # DELETE BELOW
-                if 0:
-                    plt.ion() 
-                    plt.figure()
-                    plt.imshow( e1_withBG[10:-10,:], interpolation='nearest', aspect='auto' )
-                    plt.colorbar()
-                    plt.figure()
-                    plt.imshow( e1[10:-10,:], interpolation='nearest', aspect='auto' )
-                    plt.colorbar()
-                    plt.figure()
-                    ixx = ( e1_withBG[10:-10,:]<200 )*( e1_withBG[10:-10,:]>-100 )
-                    zzA = e1_withBG[10:-10,:][ixx].flatten()
-                    plt.hist( zzA, bins=100, histtype='step' )
-                    ixx = ( e1[10:-10,:]<200 )*( e1[10:-10,:]>-100 )
-                    zzB = e1[10:-10,:][ixx].flatten()
-                    plt.hist( zzB, bins=100, histtype='step' )
-                    plt.axvline( np.median( zzA ) )
-                    plt.axvline( np.median( zzB ) )                
-                    #plt.hist( e1[10:-10,:].flatten(), bins=100, histtype='step' )
-                    pdb.set_trace()
-                #### DELETE ABOVE
                 cscan = self.DetermineScanCenter( rdiff_ecounts[:,:,j] )
                 # Apply the top-hat mask:
                 ixl = int( np.floor( cscan-self.maskradius ) )
@@ -6191,9 +6453,7 @@ class WFC3Spectra():
             firstr_raw = UR.WFC3JthRead( hdu, nreads, 1 )
             firstr_ecounts = firstr_raw-self.BackgroundMed( firstr_raw )[0]
             ecounts_per_read = np.dstack( [ firstr_ecounts, rdiff_ecounts ] )
-            #self.spectra['rdiff']['ecounts2d'] += [ np.sum( ecounts_per_read, axis=2 ) ]
             ecounts2d['rdiff'] = np.sum( ecounts_per_read, axis=2 )
-            #pdb.set_trace()
             return ecounts2d, check
 
     def BackgroundMed( self, ecounts2d ):

@@ -6006,7 +6006,7 @@ class WFC3Spectra():
             self.spectra[k]['auxvars']['bg_ppix'] = []
         self.scandirs = []
         ima_fpaths = []
-        #self.nframes = 2#50 # for testing...
+        self.nframes = 2#50 # for testing...
         for i in range( self.nframes ):
             hdu = pyfits.open( self.ima_fpaths[i] )
             h0 = hdu[0].header
@@ -6351,7 +6351,7 @@ class WFC3Spectra():
                 wavL = np.max( wavMicr2dMap[k][:,0,i] )
                 wavU = np.max( wavMicr2dMap[k][:,ndisp-1,i] )
                 wavki = np.linspace( wavL, wavU, ndisp ) # interpolation grid
-                dwavdxCommon = np.diff( wavki )
+                dwavdxCommon = np.median( np.diff( wavki ) )
                 dwavdx = self.spectraDrifting['dwavdx'][k][i,:]
                 if ( cdcs[i]>=0 )*( cdcs[i]<ncross ):
                     # Determine the cross-dispersion coordinates between
@@ -6372,7 +6372,7 @@ class WFC3Spectra():
                         # Since the dispersion varies for each row, an adjustment
                         # should be applied when we interpolate onto a common
                         # wavelength grid for all rows:
-                        adjust = dwavdx[i,rix]/float( dwavdxCommon )
+                        adjust = dwavdx[rix]/float( dwavdxCommon )
                         e2dAligned[r,:] = adjust*np.interp( wavki, xr, yr )
                     e1dk[i,:] = np.sum( e2dAligned, axis=cross_axis )
                     # Determine partial rows at edge of the aperture and

@@ -6382,14 +6382,16 @@ class WFC3Spectra():
                         ixLow = rows[0]-1
                         xr = wavMicr2dMap[k][ixLow,:,i]
                         yr = e2di[ixLow,:]
-                        e1dLow = np.interp( wavki, xr, yr )
+                        adjust = dwavdx[ixLow]/float( dwavdxCommon )
+                        e1dLow = adjust*np.interp( wavki, xr, yr )
                         e1dk[i,:] += xlow_partial*e1dLow
                     if ixs_full[-1]!=True:
                         xupp_partial = xmax - xmax_full
                         ixUpp = rows[-1]+1
                         xr = wavMicr2dMap[k][ixUpp,:,i]
                         yr = e2di[ixUpp,:]
-                        e1dUpp = np.interp( wavki, xr, yr )
+                        adjust = dwavdx[ixUpp]/float( dwavdxCommon )
+                        e1dUpp = adjust*np.interp( wavki, xr, yr )
                         e1dk[i,:] += xupp_partial*e1dUpp
                 else:
                     e1dk[i,:] = -1

@@ -870,6 +870,8 @@ class WFC3SpecFitAnalytic():
         dictionary ixs containing the indices of each dataset within that
         big data array.
         """
+        w = self.dispShift
+        s = self.smoothed
         self.dsets = list( self.slcs.keys() )
         ndsets = len( self.dsets )
         analysis = self.analysis
@@ -904,8 +906,8 @@ class WFC3SpecFitAnalytic():
                 jdf = np.linspace( jdi.min(), jdi.max(), nf )
                 thrsi = 24*( jdi-slcs['jd'][0] ) # time since start of visit in hours
                 torbi = slcs['auxvars'][analysis]['torb'][scanixs[k]]
-                fluxi = slcs['lc_flux'][lctype][scanixs[k],self.chix]
-                uncsi = slcs['lc_uncs'][lctype][scanixs[k],self.chix]
+                fluxi = slcs['lc_flux'][lctype][w][s][scanixs[k],self.chix]
+                uncsi = slcs['lc_uncs'][lctype][w][s][scanixs[k],self.chix]
                 data += [ np.column_stack( [ jdi, thrsi, torbi, fluxi, uncsi ] ) ]
                 i2 = i1+len( fluxi )
                 ixs[dset][k] = np.arange( i1, i2 )
@@ -4893,6 +4895,7 @@ class WFC3SpecLightCurves():
         self.ss_maxshift_pix = 1
         self.ss_dshift_pix = 0.001
         self.ss_smoothing_fwhm = None
+        self.smoothing_fwhm = None # applied to 1D spectra prior to summing within channels
         self.cuton_micron = None
         self.cutoff_micron = None
         #self.npix_perbin = None
@@ -4972,34 +4975,55 @@ class WFC3SpecLightCurves():
         self.GetChannels( wavmicr )
         self.lc_flux = { 'raw':{}, 'cm':{}, 'ss':{} }
         self.lc_uncs = { 'raw':{}, 'cm':{}, 'ss':{} }
-        self.MakeBasic( wavmicr, dwavmicr, ecounts1d )
-        self.MakeShiftStretch( wavmicr, dwavmicr, ecounts1d, wfitarrs )
+        if self.smoothing_fwhm is not None:
+            smthsig = self.smoothing_fwhm/2./np.sqrt( 2.*np.log( 2. ) )
+        else:
+            smthsig = 0
+        self.lc_flux = { 'raw':{}, 'cm':{}, 'ss':{ 'withDispShifts':{} } }
+        self.lc_uncs = { 'raw':{}, 'cm':{}, 'ss':{ 'withDispShifts':{} } }
+        smthsigs = [ 0, smthsig ]
+        withDispShifts = [ True, False ]
+        for s in smthsigs:
+            for w in withDispShifts:
+                self.MakeBasic( wavmicr, dwavmicr, ecounts1d, smthsig=s, \
+                                withDispShifts=w )
+            self.MakeShiftStretch( wavmicr, dwavmicr, ecounts1d, wfitarrs, smthsig=s )
         self.UnpackArrays()
         return None
     
     
     def UnpackArrays( self ):
+        """
+        Unpacks flux and uncs from being arranged by scan direction, 
+        to single time-ordered arrays.
+        """
+        jd = []
+        for j in self.scankeys:
+            ixsj = ( self.scandirs==UR.ScanVal( j ) )
+            jd += [ self.jd[ixsj] ]
+        jd = np.concatenate( jd )
+        ixs = np.argsort( jd ) # time-ordered indices
+        # Now unpack the scan-labeled data and make time-ordered arrays:
         lc_flux = {}
         lc_uncs = {}
         for k in ['raw','cm','ss']:
-            jd = []
-            fluxk = []
-            uncsk = []
-            for j in self.scankeys:
-                fluxkj = self.lc_flux[k][j]
-                uncskj = self.lc_uncs[k][j]
-                for i in range( self.nchannels ):
-                    fnormkji = np.mean( fluxkj[:,i] )
-                    fluxkj[:,i] = fluxkj[:,i]/fnormkji
-                    uncskj[:,i] = uncskj[:,i]/fnormkji
-                fluxk += [ fluxkj ]
-                uncsk += [ uncskj ]
-                ixsj = ( self.scandirs==UR.ScanVal( j ) )
-                jd += [ self.jd[ixsj] ]
-            jd = np.concatenate( jd )
-            ixs = np.argsort( jd )
-            self.lc_flux[k] = np.concatenate( fluxk )[ixs]
-            self.lc_uncs[k] = np.concatenate( uncsk )[ixs]
+            dispShifts = list( self.lc_flux[k].keys() )
+            for w in dispShifts:
+                smooths = list( self.lc_flux[k][w].keys() )
+                for s in smooths:
+                    fluxkws = []
+                    uncskws = []
+                    for j in self.scankeys:
+                        fluxkwsj = self.lc_flux[k][w][s][j]
+                        uncskwsj = self.lc_uncs[k][w][s][j]
+                        for i in range( self.nchannels ):
+                            fnormkji = np.mean( fluxkwsj[:,i] )
+                            fluxkwsj[:,i] = fluxkwsj[:,i]/fnormkji
+                            uncskwsj[:,i] = uncskwsj[:,i]/fnormkji
+                        fluxkws += [ fluxkwsj ]
+                        uncskws += [ uncskwsj ]
+                    self.lc_flux[k][w][s] = np.concatenate( fluxkws )[ixs]
+                    self.lc_uncs[k][w][s] = np.concatenate( uncskws )[ixs]
         return None
     
     
@@ -5022,7 +5046,7 @@ class WFC3SpecLightCurves():
         return None
 
     
-    def MakeBasic( self, wavmicr, dwavmicr, ecounts1d ):
+    def MakeBasic( self, wavmicr, dwavmicr, ecounts1d, smthsig=0, withDispShifts=True ):
         """
         Accounts for wavelength shifts
         """
@@ -5039,24 +5063,51 @@ class WFC3SpecLightCurves():
             rmsu_del = np.zeros( ndat )
             rmsc_del = np.zeros( ndat )
             for i in range( ndat ):
-                wavmicri = wavmicr-dwavmicr[ixsj[i]]
-                ecounts1di = ecounts1d[ixsj[i],:]
-                interpf = scipy.interpolate.interp1d( wavmicri, ecounts1di )
+                wavmicri = wavmicr-dwavmicr[ixsj[i]]                    
+                e1di = ecounts1d[ixsj[i],:]
+                if smthsig>0:
+                    e1di = scipy.ndimage.filters.gaussian_filter1d( e1di, smthsig )
+                nwav = len( wavmicr )
+                ixs0 = np.arange( nwav )
+                interpf = scipy.interpolate.interp1d( wavmicri, e1di )
                 for k in range( self.nchannels ):
-                    wavx = np.linspace( self.wavedgesmicr[k][0], self.wavedgesmicr[k][1], 1000 )
+                    wavL = self.wavedgesmicr[k][0]
+                    wavU = self.wavedgesmicr[k][1]
+                    wavx = np.linspace( wavL, wavU, 1000 )
                     dx = np.median( np.diff( wavx ) )/np.median( np.diff( wavmicri ) )
-                    flux_raw[j][i,k] = np.sum( dx*interpf( wavx ) )
-                    uncs_raw[j][i,k] = np.sqrt( flux_raw[j][i,k] )
-                
+                    if withDispShifts==True:
+                        flux_raw[j][i,k] = np.sum( dx*interpf( wavx ) )
+                        uncs_raw[j][i,k] = np.sqrt( flux_raw[j][i,k] )
+                    else:
+                        ixL = ixs0[np.argmin( wavmicr-wavL )]
+                        ixU = ixs0[np.argmin( wavmicr-wavU )]
+                        flux_raw[j][i,k] = e1di[ixL:ixU+1]
+                        uncs_raw[j][i,k] = np.sqrt( flux_raw[j][i,k] )
             flux_cm[j] = np.zeros( [ ndat, self.nchannels ] )
             uncs_cm[j] = np.zeros( [ ndat, self.nchannels ] )
             for k in range( self.nchannels ):
                 flux_cm[j][:,k] = flux_raw[j][:,k]/self.cmode[j]
                 uncs_cm[j][:,k] = uncs_raw[j][:,k]#/self.cmode[j]
-        self.lc_flux['raw'] = flux_raw
-        self.lc_uncs['raw'] = uncs_raw
-        self.lc_flux['cm'] = flux_cm
-        self.lc_uncs['cm'] = uncs_cm
+        if withDispShifts==True:
+            l1 = 'withDispShifts'
+        else:
+            l1 = 'noDispShifts'
+        if smthsig==0:
+            l2 = 'unSmoothed'
+        else:
+            l2 = 'Smoothed'
+        if l1 in self.lc_flux['raw']:
+            self.lc_flux['raw'][l1][l2] = flux_raw
+            self.lc_uncs['raw'][l1][l2] = uncs_raw
+        else:
+            self.lc_flux['raw'].update( { l1:{ l2:flux_raw } } )
+            self.lc_uncs['raw'].update( { l1:{ l2:uncs_raw } } )
+        if l1 in self.lc_flux['cm']:
+            self.lc_flux['cm'][l1][l2] = flux_cm
+            self.lc_uncs['cm'][l1][l2] = uncs_cm
+        else:
+            self.lc_flux['cm'].update( { l1:{ l2:flux_cm } } )
+            self.lc_uncs['cm'].update( { l1:{ l2:uncs_cm } } )
         return None
     
     
@@ -5091,7 +5142,7 @@ class WFC3SpecLightCurves():
         return None
     
     
-    def MakeShiftStretch( self, wavmicr, dwavmicr, ecounts1d, bestfits ):
+    def MakeShiftStretch( self, wavmicr, dwavmicr, ecounts1d, bestfits, smthsig=0 ):
         self.ss_dspec = {}
         self.ss_wavshift_pix = {}
         self.ss_vstretch = {}
@@ -5106,6 +5157,8 @@ class WFC3SpecLightCurves():
         ix0 = np.arange( nwav )[np.argmin( dwav0 )]
         ix1 = np.arange( nwav )[np.argmin( dwav1 )]
         self.ss_dispbound_ixs = [ ix0, ix1 ]
+        flux_ss = {}
+        uncs_ss = {}
         for j in self.scankeys:
             ixsj = ( self.scandirs==UR.ScanVal( j ) )
             ecounts1dj = ecounts1d[ixsj,:]
@@ -5126,16 +5179,23 @@ class WFC3SpecLightCurves():
                 self.ss_dspec[j][i,:] /= refspecj
                 self.ss_enoise[j][i,:] /= refspecj
             # Construct the ss lightcurves by adding back in the white psignal:
-            flux_ss = np.zeros( [ nframes, self.nchannels ] )
+            flux_ss[j] = np.zeros( [ nframes, self.nchannels ] )
             #uncs_ss = np.zeros( np.shape( self.ss_dspec[j] ) )
-            uncs_ss = np.zeros( [ nframes, self.nchannels ] )
+            uncs_ss[j] = np.zeros( [ nframes, self.nchannels ] )
             for i in range( nframes ):
                 #ecounts1dji = ecounts1dj[i,:]
-                interpfi_dspec = scipy.interpolate.interp1d( wavmicrj, self.ss_dspec[j][i,:] )
-                interpfi_enoise = scipy.interpolate.interp1d( wavmicrj, self.ss_enoise[j][i,:] )
+                dspec = self.ss_dspec[j][i,:]
+                enoise = self.ss_enoise[j][i,:]
+                if smthsig>0:
+                    dspec = scipy.ndimage.filters.gaussian_filter1d( dspec, smthsig )
+                interpfi_dspec = scipy.interpolate.interp1d( wavmicrj, dspec )
+                interpfi_enoise = scipy.interpolate.interp1d( wavmicrj, enoise )
+
                 ################################################                
                 for k in range( self.nchannels ):
-                    wavk = np.linspace( self.wavedgesmicr[k][0], self.wavedgesmicr[k][1], 1000 )
+                    wavLk = self.wavedgesmicr[k][0]
+                    wavUk = self.wavedgesmicr[k][1]
+                    wavk = np.linspace( wavLk, wavUk, 1000 )
                     dwdp = np.median( np.diff( wavmicrj ) )
                     npix = ( wavk.max()-wavk.min() )/dwdp
                     # Bin the differential fluxes within the current channel for the current
@@ -5145,14 +5205,20 @@ class WFC3SpecLightCurves():
                     # fluxes corrected for wavelength-common-mode systematics minus the 
                     # white transit, we simply add back in the white transit signal to
                     # obtain the systematics-corrected spectroscopic lightcurve:
-                    flux_ss[i,k] = dspecik + psignalj[i]
+                    flux_ss[j][i,k] = dspecik + psignalj[i]
                     # Bin the uncertainties within the current channel for the current
                     # spectrum, again using a super-sampled linear interpolation:
-                    uncs_ss[i,k] = np.mean( interpfi_enoise( wavk ) )
-                    uncs_ss[i,k] /= np.sqrt( float( npix ) )
-                ################################################
-            self.lc_flux['ss'][j] = flux_ss
-            self.lc_uncs['ss'][j] = uncs_ss
+                    uncs_ss[j][i,k] = np.mean( interpfi_enoise( wavk ) )
+                    uncs_ss[j][i,k] /= np.sqrt( float( npix ) )
+                ################################################            
+        l1 = 'withDispShifts' # always for ss
+        if smthsig==0:
+            l2 = 'unSmoothed'
+        else:
+            l2 = 'Smoothed'            
+        self.lc_flux['ss'][l1][l2] = flux_ss
+        self.lc_uncs['ss'][l1][l2] = uncs_ss
+
         return None
 
     
@@ -5284,7 +5350,6 @@ class WFC3SpecLightCurves():
             ixl = np.argmin( np.abs( wavmicr-self.wavedgesmicr[i][0] ) )
             ixu = np.argmin( np.abs( wavmicr-self.wavedgesmicr[i][1] ) )
             ixs = ( wavmicr>=wavmicr[ixl] )*( wavmicr<=wavmicr[ixu] )
-            #print( 'aaa', i, '{0:.5f}-{1:.5f} micron'.format( self.wavedgesmicr[i][0], self.wavedgesmicr[i][1] ) )
             ax.fill_between( wavmicr[ixs], 0, f[ixs], facecolor=c, alpha=alphaj )
         if spec1d['config']=='G141':
             ax.set_xlim( [ 0.97, 1.8 ] )
@@ -5332,6 +5397,7 @@ class WFC3WhiteLightCurve():
         self.atlas_logg = None
         self.atlas_newgrid = True
         self.ld = { 'quad':None, 'nonlin':None }
+        self.smoothing_fwhm = None
         
     def Create( self ):
         print( '\nReading:\n{0}'.format( self.spec1d_fpath ) )
@@ -5346,26 +5412,37 @@ class WFC3WhiteLightCurve():
         #self.rkeys = ['rlast']
         self.rkeys = spec1d['rkeys']
         self.whitelc = {}
+        self.whitelcSmooth = {}
+        if self.smoothing_fwhm is not None:
+            smthsig = self.smoothing_fwhm/2./np.sqrt( 2.*np.log( 2. ) )
+        else:
+            smthsig = 0
         for k in self.rkeys:
             self.whitelc[k] = {}
+            self.whitelcSmooth[k] = {}
             self.whitelc[k]['auxvars'] = spec1d['spectra'][k]['auxvars']
             wavmicr = spec1d['spectra'][k]['wavmicr'][d1:d2+1]
-            ecounts1d = spec1d['spectra'][k]['ecounts1d'][:,d1:d2+1]
-            nframes, ndisp = np.shape( ecounts1d )
+            e1d = spec1d['spectra'][k]['ecounts1d'][:,d1:d2+1]
+            e1dSmth = scipy.ndimage.filters.gaussian_filter1d( e1d, smthsig, axis=1 )
+            nframes, ndisp = np.shape( e1d )
             xdisp = np.arange( ndisp )
             if self.wavmicr_range=='all':
                 self.wavmicr_range = [ wavmicr.min(), wavmicr.max() ]
-                flux = np.sum( ecounts1d, axis=1 )
+                flux = np.sum( e1d, axis=1 )
+                fluxSmth = np.sum( e1dSmth, axis=1 )
             else:
                 ixl = xdisp[np.argmin(np.abs(wavmicr-self.wavmicr_range[0]))]
                 ixu = xdisp[np.argmin(np.abs(wavmicr-self.wavmicr_range[1]))]
-                #flux = np.sum( ecounts1d[:,ixl:ixu+1], axis=1 )
-                flux = np.sum( ecounts1d[:,ixl:ixu], axis=1 )
+                #flux = np.sum( e1d[:,ixl:ixu+1], axis=1 )
+                flux = np.sum( e1d[:,ixl:ixu], axis=1 )
+                fluxSmth = np.sum( e1dSmth[:,ixl:ixu], axis=1 )
             fluxn = flux[-1]
             self.whitelc[k]['flux_electrons'] = flux
             self.whitelc[k]['uncs_electrons'] = np.sqrt( flux )
             self.whitelc[k]['flux'] = flux/fluxn
             self.whitelc[k]['uncs'] = np.sqrt( flux )/fluxn
+            self.whitelcSmooth[k]['flux'] = fluxSmth/fluxn
+            self.whitelcSmooth[k]['uncs'] = np.sqrt( fluxSmth )/fluxn
         # Check if spectra object contains arrays accounting for the
         # drift of the target during spatial scanning:
         if 'spectraDrifting' in spec1d:
@@ -5392,7 +5469,7 @@ class WFC3WhiteLightCurve():
                 flux = np.sum( ecounts1d, axis=1 )
             else:
                 flux = np.zeros( nframes )
-                fluxQ = np.zeros( nframes )                
+                #fluxQ = np.zeros( nframes )                
                 wavL = self.wavmicr_range[0]
                 wavU = self.wavmicr_range[1]
                 for i in range( nframes ):
@@ -5400,25 +5477,25 @@ class WFC3WhiteLightCurve():
                     flux[i] = scipy.integrate.trapz( ecounts1d[i,ixs], x=wavmicr[i,ixs] )
                     # Use numerical quadrature; gives basically same answer but slower:
                     interpf = scipy.interpolate.interp1d( wavmicr[i,:], ecounts1d[i,:] )
-                    fluxQ[i] = scipy.integrate.quad( interpf, wavL, wavU )[0] # Slow...
-                    print( 'oooo', i, ixs.sum() )
+                    #fluxQ[i] = scipy.integrate.quad( interpf, wavL, wavU )[0] # Slow...
+                    #print( 'oooo', i, ixs.sum() )
             fluxn = flux[-1]
             # Not sure if these units are technically electrons:
             self.whitelcDrifting[k]['flux_electrons_maybe'] = flux
             self.whitelcDrifting[k]['uncs_electrons_maybe'] = np.sqrt( flux )
             self.whitelcDrifting[k]['flux'] = flux/fluxn
             self.whitelcDrifting[k]['uncs'] = np.sqrt( flux )/fluxn
-            if k=='rdiff_zap':
-                plt.ion()
-                plt.figure()
-                ff = np.sum( ecounts1d, axis=1 )
-                ff /= ff[-1]
-                fluxQ /= fluxQ[-1]
-                plt.plot( self.jd, self.whitelc[k]['flux'], 'or' )
-                plt.plot( self.jd, self.whitelcDrifting[k]['flux']+0.003, 'ok' )
-                plt.plot( self.jd, fluxQ+0.003, '^c' )
-                #plt.plot( self.jd, ff, 'xg' )
-                pdb.set_trace()
+            #if k=='rdiff_zap':
+            #    plt.ion()
+            #    plt.figure()
+            #    ff = np.sum( ecounts1d, axis=1 )
+            #    ff /= ff[-1]
+            #    fluxQ /= fluxQ[-1]
+            #    plt.plot( self.jd, self.whitelc[k]['flux'], 'or' )
+            #    plt.plot( self.jd, self.whitelcDrifting[k]['flux']+0.003, 'ok' )
+            #    plt.plot( self.jd, fluxQ+0.003, '^c' )
+            #    #plt.plot( self.jd, ff, 'xg' )
+            #    pdb.set_trace()
             
         return None
     

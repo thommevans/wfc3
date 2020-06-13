@@ -5114,10 +5114,10 @@ class WFC3SpecLightCurves():
             l2 = 'unSmoothed'
         else:
             l2 = 'Smoothed'
-        self.lc_flux['raw'][l1][l2][smthsig] = flux_raw
-        self.lc_uncs['raw'][l1][l2][smthsig] = uncs_raw
-        self.lc_flux['cm'][l1][l2][smthsig] = flux_cm
-        self.lc_uncs['cm'][l1][l2][smthsig] = uncs_cm
+        self.lc_flux['raw'][l1][l2][smoothing_fwhm] = flux_raw
+        self.lc_uncs['raw'][l1][l2][smoothing_fwhm] = uncs_raw
+        self.lc_flux['cm'][l1][l2][smoothing_fwhm] = flux_cm
+        self.lc_uncs['cm'][l1][l2][smoothing_fwhm] = uncs_cm
         return None
     
     
@@ -5228,8 +5228,8 @@ class WFC3SpecLightCurves():
             l2 = 'unSmoothed'
         else:
             l2 = 'Smoothed'            
-        self.lc_flux['ss'][l1][l2][smthsig] = flux_ss
-        self.lc_uncs['ss'][l1][l2][smthsig] = uncs_ss
+        self.lc_flux['ss'][l1][l2][smoothing_fwhm] = flux_ss
+        self.lc_uncs['ss'][l1][l2][smoothing_fwhm] = uncs_ss
 
         return None
 

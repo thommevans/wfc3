@@ -5639,7 +5639,8 @@ class WFC3Spectra():
         self.zap2d_nsig_static = 10
         self.zap2d_niter = 1
         self.zap1d_nsig_transient = 5
-        self.zap1d_niter = 2
+        self.zap1d_niter = 2 
+        self.extractDriftSpectra = False       
         return None
 
 
@@ -5674,7 +5675,8 @@ class WFC3Spectra():
         self.SumSpatScanSpectra( ecounts2d )
         self.InstallBandpass()
         self.GetWavSol()
-        self.extractDriftSpectra( ecounts2d, 'rdiff_zap' )
+        if self.extractDriftSpectra==True:
+            self.extractDriftSpectraFunc( ecounts2d, 'rdiff_zap' )
         self.ZapBadPix1D()
         self.ShiftStretch()
         self.SaveEcounts2D( ecounts2d )
@@ -6122,7 +6124,7 @@ class WFC3Spectra():
             ecounts2d[k] = np.dstack( ecounts2d[k] )[:,:,ixs]
         return ecounts2d
 
-    def extractDriftSpectra( self, ecounts2dRaw, analysis ):
+    def extractDriftSpectraFunc( self, ecounts2dRaw, analysis ):
         """
         Solves for 
         """

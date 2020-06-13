@@ -5633,7 +5633,7 @@ class WFC3Spectra():
         self.ntrim_edge = None
         self.apradius = None
         self.maskradius = None
-        self.smoothing_fwhm = None
+        self.ss_smoothing_fwhm = None
         self.trim_disp_ixs = []
         self.trim_crossdisp_ixs = []
         self.ss_dispbound_ixs = []
@@ -5657,11 +5657,11 @@ class WFC3Spectra():
         return None
     
     def Extract1DSpectra( self ):
-        if ( self.smoothing_fwhm is None )+( self.smoothing_fwhm==0 ):
-            self.smoothing_str = 'unsmoothed'
-            self.smoothing_fwhm = 0.0
+        if ( self.ss_smoothing_fwhm is None )+( self.ss_smoothing_fwhm==0 ):
+            self.ss_smoothing_str = 'unsmoothed'
+            self.ss_smoothing_fwhm = 0.0
         else:
-            self.smoothing_str = 'smooth{0:.2f}pix'.format( self.smoothing_fwhm )
+            self.ss_smoothing_str = 'smooth{0:.2f}pix'.format( self.ss_smoothing_fwhm )
         self.getFilterStr()
         ecounts2d = self.ProcessIma()
         # Having problems with ZapBadPix2D, mainly with it seeming
@@ -5700,8 +5700,8 @@ class WFC3Spectra():
         
 
     def GenerateFileName( self ):
-        oname = '{0}.aprad{1:.1f}pix.maskrad{2:.1f}pix.pkl'\
-                .format( self.dsetname, self.apradius, self.maskradius )
+        oname = '{0}.aprad{1:.1f}pix.maskrad{2:.1f}pix.{3}.pkl'\
+                .format( self.dsetname, self.apradius, self.maskradius, self.akey )
         #self.spec1d_fpath = os.path.join( self.spec1d_dir, oname )
         return oname
 
@@ -5744,7 +5744,7 @@ class WFC3Spectra():
         dpix_max = 1
         dwav_max = dpix_max*self.dispersion_micrppix
         nshifts = int( np.round( 2*dpix_max*(1e3)+1 ) ) # 0.001 pix
-        fwhm_e1d = self.smoothing_fwhm
+        fwhm_e1d = self.ss_smoothing_fwhm
         sig_e1d = fwhm_e1d/2./np.sqrt( 2.*np.log( 2 ) )
         for k in self.rkeys:
             wav0 = self.spectra[k]['wavmicr']

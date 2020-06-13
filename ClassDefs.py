@@ -5024,8 +5024,8 @@ class WFC3SpecLightCurves():
                 for s in smooths:
                     sigs = list( self.lc_flux[k][w][s].keys() )
                     for d in sigs:
-                        fluxkws = []
-                        uncskws = []
+                        fluxkwsd = []
+                        uncskwsd = []
                         for j in self.scankeys:
                             fluxkwsdj = self.lc_flux[k][w][s][d][j]
                             uncskwsdj = self.lc_uncs[k][w][s][d][j]
@@ -5033,8 +5033,8 @@ class WFC3SpecLightCurves():
                                 fnormkwsdji = np.mean( fluxkwsdj[:,i] )
                                 fluxkwsdj[:,i] = fluxkwsdj[:,i]/fnormkwsdji
                                 uncskwsdj[:,i] = uncskwsdj[:,i]/fnormkwsdji
-                            fluxkws += [ fluxkwsdj ]
-                            uncskws += [ uncskwsdj ]
+                            fluxkwsd += [ fluxkwsdj ]
+                            uncskwsd += [ uncskwsdj ]
                         self.lc_flux[k][w][s][d] = np.concatenate( fluxkwsd )[ixs]
                         self.lc_uncs[k][w][s][d] = np.concatenate( uncskwsd )[ixs]
         return None

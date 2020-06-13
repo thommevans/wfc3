@@ -4975,7 +4975,7 @@ class WFC3SpecLightCurves():
         self.GetChannels( wavmicr )
         self.lc_flux = { 'raw':{}, 'cm':{}, 'ss':{ 'withDispShifts':{} } }
         self.lc_uncs = { 'raw':{}, 'cm':{}, 'ss':{ 'withDispShifts':{} } }
-        smthsigs = range( 6 ) # loop over a bunch of smoothings by default
+        smths = range( 6 ) # loop over a bunch of smoothings by default
         withDispShifts = [ True, False ]
         for k in ['raw','cm','ss']:
             for w in withDispShifts:
@@ -4996,9 +4996,10 @@ class WFC3SpecLightCurves():
                         self.lc_uncs[k][l1]['Smoothed'][l2] = None
         for s in smthsigs:
             for w in withDispShifts:
-                self.MakeBasic( wavmicr, dwavmicr, ecounts1d, smthsig=s, \
+                self.MakeBasic( wavmicr, dwavmicr, ecounts1d, smoothing_fwhm=s, \
                                 withDispShifts=w )
-            self.MakeShiftStretch( wavmicr, dwavmicr, ecounts1d, wfitarrs, smthsig=s )
+            self.MakeShiftStretch( wavmicr, dwavmicr, ecounts1d, wfitarrs, \
+                                   smoothing_fwhm=s )
         self.UnpackArrays()
         return None
     
@@ -5059,10 +5060,14 @@ class WFC3SpecLightCurves():
         return None
 
     
-    def MakeBasic( self, wavmicr, dwavmicr, ecounts1d, smthsig=0, withDispShifts=True ):
+    def MakeBasic( self, wavmicr, dwavmicr, ecounts1d, smoothing_fwhm=0, \
+                   withDispShifts=True ):
         """
         Accounts for wavelength shifts
         """
+        
+        smthsig = smoothing_fwhm/2./np.sqrt( 2.*np.log( 2. ) )
+
         nframes, ndisp = np.shape( ecounts1d )
         flux_raw = {}
         uncs_raw = {}
@@ -5147,7 +5152,9 @@ class WFC3SpecLightCurves():
         return None
     
     
-    def MakeShiftStretch( self, wavmicr, dwavmicr, ecounts1d, bestfits, smthsig=0 ):
+    def MakeShiftStretch( self, wavmicr, dwavmicr, ecounts1d, bestfits, \
+                          smoothing_fwhm=0 ):
+        smthsig = smoothing_fwhm/2./np.sqrt( 2.*np.log( 2. ) )
         self.ss_dspec = {}
         self.ss_wavshift_pix = {}
         self.ss_vstretch = {}

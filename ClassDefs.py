@@ -5760,14 +5760,16 @@ class WFC3Spectra():
             #plt.ion()
             #plt.figure()
             for i in range( self.nframes ):
-                print( '{0} ... image {1} of {2}'.format( k, i+1, self.nframes ) )
+                print( '{0} ... image {1} of {2} (ShiftStretch)'\
+                       .format( k, i+1, self.nframes ) )
                 e1di = self.spectra[k]['ecounts1d'][i,:]
                 if e1di.max()>0:
                     if sig_e1d!=0:
                         e1di_smth = scipy.ndimage.filters.gaussian_filter1d( e1di, sig_e1d )
                     else:
                         e1di_smth = e1di
-                    cc = self.CrossCorrSol( x0, e1di_smth, x0.copy(), e1d0_smth.copy(), d1, d2, \
+                    cc = self.CrossCorrSol( x0, e1di_smth, x0.copy(), \
+                                            e1d0_smth.copy(), d1, d2, \
                                             dx_max=dpix_max, nshifts=2*dpix_max*1000+1 )
                     wshifts_pix[i] = cc[0]
                     vstretches[i] = cc[1]
@@ -6357,7 +6359,8 @@ class WFC3Spectra():
             cdcs = np.zeros( nframes )
             x = np.arange( ncross )
             for i in range( nframes ):
-                print( '{0} ... image {1} of {2}'.format( k, i+1, nframes ) )
+                print( '{0} ... image {1} of {2} (SumSpatScanSpectra)'\
+                       .format( k, i+1, nframes ) )
                 e2di = e2d[:,:,i]
                 cdcs[i] = self.DetermineScanCenter( e2di )
                 if ( cdcs[i]>=0 )*( cdcs[i]<ncross ):
@@ -6420,7 +6423,8 @@ class WFC3Spectra():
             x = np.arange( ncross )
             wavInterpk = np.zeros( [ nframes, ndisp ] )        
             for i in range( nframes ):
-                print( '{0} ... image {1} of {2}'.format( k, i+1, nframes ) )
+                print( '{0} ... image {1} of {2} (SumSpatScanSpectraDrifting)'\
+                       .format( k, i+1, nframes ) )
                 e2di = e2d[:,:,i]
                 # Wavelength to interpolate each cross-dispersion row between:
                 wavL = np.max( wavMicr2dMap[k][:,0,i] )

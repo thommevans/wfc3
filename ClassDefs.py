@@ -4990,7 +4990,7 @@ class WFC3SpecLightCurves():
                 self.lc_flux[k] = { l1:{ 'Smoothed':{}, 'unSmoothed':{} } }
                 self.lc_uncs[k] = { l1:{ 'Smoothed':{}, 'unSmoothed':{} } }
                 for l2 in smthsigs:
-                    if s==0:
+                    if l2==0:
                         self.lc_flux[k][l1]['unSmoothed'] = { l2:None }
                         self.lc_uncs[k][l1]['unSmoothed'] = { l2:None }
                     else:

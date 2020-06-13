@@ -4973,8 +4973,6 @@ class WFC3SpecLightCurves():
         dwavmicr = self.auxvars[self.analysis]['wavshift_micr']
         ecounts1d = spec1d['spectra'][self.analysis]['ecounts1d'][ixsc,:]
         self.GetChannels( wavmicr )
-        self.lc_flux = { 'raw':{}, 'cm':{}, 'ss':{} }
-        self.lc_uncs = { 'raw':{}, 'cm':{}, 'ss':{} }
         self.lc_flux = { 'raw':{}, 'cm':{}, 'ss':{ 'withDispShifts':{} } }
         self.lc_uncs = { 'raw':{}, 'cm':{}, 'ss':{ 'withDispShifts':{} } }
         smthsigs = range( 6 ) # loop over a bunch of smoothings by default
@@ -4987,15 +4985,15 @@ class WFC3SpecLightCurves():
                     continue
                 else:
                     l1 = 'noDispShifts'
-                self.lc_flux[k] = { l1:{ 'Smoothed':{}, 'unSmoothed':{} } }
-                self.lc_uncs[k] = { l1:{ 'Smoothed':{}, 'unSmoothed':{} } }
+                self.lc_flux[k][l1] = { 'Smoothed':{}, 'unSmoothed':{} }
+                self.lc_uncs[k][l1] = { 'Smoothed':{}, 'unSmoothed':{} }
                 for l2 in smthsigs:
                     if l2==0:
-                        self.lc_flux[k][l1]['unSmoothed'] = { l2:None }
-                        self.lc_uncs[k][l1]['unSmoothed'] = { l2:None }
+                        self.lc_flux[k][l1]['unSmoothed'][l2] = None
+                        self.lc_uncs[k][l1]['unSmoothed'][l2] = None
                     else:
-                        self.lc_flux[k][l1]['Smoothed'] = { l2:None }
-                        self.lc_uncs[k][l1]['Smoothed'] = { l2:None }
+                        self.lc_flux[k][l1]['Smoothed'][l2] = None
+                        self.lc_uncs[k][l1]['Smoothed'][l2] = None
         for s in smthsigs:
             for w in withDispShifts:
                 self.MakeBasic( wavmicr, dwavmicr, ecounts1d, smthsig=s, \

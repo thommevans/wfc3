@@ -4979,6 +4979,23 @@ class WFC3SpecLightCurves():
         self.lc_uncs = { 'raw':{}, 'cm':{}, 'ss':{ 'withDispShifts':{} } }
         smthsigs = range( 6 ) # loop over a bunch of smoothings by default
         withDispShifts = [ True, False ]
+        for k in ['raw','cm','ss']:
+            for w in withDispShifts:
+                if w==True:
+                    l1 = 'withDispShifts'
+                elif k=='ss':
+                    continue
+                else:
+                    l1 = 'noDispShifts'
+                self.lc_flux[k] = { l1:{ 'Smoothed':{}, 'unSmoothed':{} } }
+                self.lc_uncs[k] = { l1:{ 'Smoothed':{}, 'unSmoothed':{} } }
+                for l2 in smthsigs:
+                    if s==0:
+                        self.lc_flux[k][l1]['unSmoothed'] = { l2:None }
+                        self.lc_uncs[k][l1]['unSmoothed'] = { l2:None }
+                    else:
+                        self.lc_flux[k][l1]['Smoothed'] = { l2:None }
+                        self.lc_uncs[k][l1]['Smoothed'] = { l2:None }
         for s in smthsigs:
             for w in withDispShifts:
                 self.MakeBasic( wavmicr, dwavmicr, ecounts1d, smthsig=s, \
@@ -5092,18 +5109,10 @@ class WFC3SpecLightCurves():
             l2 = 'unSmoothed'
         else:
             l2 = 'Smoothed'
-        if l1 in self.lc_flux['raw']:
-            self.lc_flux['raw'][l1][l2] = flux_raw
-            self.lc_uncs['raw'][l1][l2] = uncs_raw
-        else:
-            self.lc_flux['raw'].update( { l1:{ l2:flux_raw } } )
-            self.lc_uncs['raw'].update( { l1:{ l2:uncs_raw } } )
-        if l1 in self.lc_flux['cm']:
-            self.lc_flux['cm'][l1][l2] = flux_cm
-            self.lc_uncs['cm'][l1][l2] = uncs_cm
-        else:
-            self.lc_flux['cm'].update( { l1:{ l2:flux_cm } } )
-            self.lc_uncs['cm'].update( { l1:{ l2:uncs_cm } } )
+        self.lc_flux['raw'][l1][l2][smthsig] = flux_raw
+        self.lc_uncs['raw'][l1][l2][smthsig] = uncs_raw
+        self.lc_flux['cm'][l1][l2][smthsig] = flux_cm
+        self.lc_uncs['cm'][l1][l2][smthsig] = uncs_cm
         return None
     
     
@@ -5212,8 +5221,8 @@ class WFC3SpecLightCurves():
             l2 = 'unSmoothed'
         else:
             l2 = 'Smoothed'            
-        self.lc_flux['ss'][l1][l2] = flux_ss
-        self.lc_uncs['ss'][l1][l2] = uncs_ss
+        self.lc_flux['ss'][l1][l2][smthsig] = flux_ss
+        self.lc_uncs['ss'][l1][l2][smthsig] = uncs_ss
 
         return None
 

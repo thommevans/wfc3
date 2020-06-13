@@ -5022,19 +5022,21 @@ class WFC3SpecLightCurves():
             for w in dispShifts:
                 smooths = list( self.lc_flux[k][w].keys() )
                 for s in smooths:
-                    fluxkws = []
-                    uncskws = []
-                    for j in self.scankeys:
-                        fluxkwsj = self.lc_flux[k][w][s][j]
-                        uncskwsj = self.lc_uncs[k][w][s][j]
-                        for i in range( self.nchannels ):
-                            fnormkji = np.mean( fluxkwsj[:,i] )
-                            fluxkwsj[:,i] = fluxkwsj[:,i]/fnormkji
-                            uncskwsj[:,i] = uncskwsj[:,i]/fnormkji
-                        fluxkws += [ fluxkwsj ]
-                        uncskws += [ uncskwsj ]
-                    self.lc_flux[k][w][s] = np.concatenate( fluxkws )[ixs]
-                    self.lc_uncs[k][w][s] = np.concatenate( uncskws )[ixs]
+                    sigs = list( self.lc_flux[k][w][s].keys() )
+                    for d in sigs:
+                        fluxkws = []
+                        uncskws = []
+                        for j in self.scankeys:
+                            fluxkwsdj = self.lc_flux[k][w][s][d][j]
+                            uncskwsdj = self.lc_uncs[k][w][s][d][j]
+                            for i in range( self.nchannels ):
+                                fnormkwsdji = np.mean( fluxkwsdj[:,i] )
+                                fluxkwsdj[:,i] = fluxkwsdj[:,i]/fnormkwsdji
+                                uncskwsdj[:,i] = uncskwsdj[:,i]/fnormkwsdji
+                            fluxkws += [ fluxkwsdj ]
+                            uncskws += [ uncskwsdj ]
+                        self.lc_flux[k][w][s][d] = np.concatenate( fluxkwsd )[ixs]
+                        self.lc_uncs[k][w][s][d] = np.concatenate( uncskwsd )[ixs]
         return None
     
     

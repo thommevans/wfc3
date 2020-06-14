@@ -871,7 +871,12 @@ class WFC3SpecFitAnalytic():
         big data array.
         """
         w = self.dispShift
-        s = self.smoothed
+        s = self.smoothing_fwhm
+        if s>0:
+            l = 'Smoothed'
+        else:
+            l = 'unSmoothed'
+        
         self.dsets = list( self.slcs.keys() )
         ndsets = len( self.dsets )
         analysis = self.analysis
@@ -906,8 +911,8 @@ class WFC3SpecFitAnalytic():
                 jdf = np.linspace( jdi.min(), jdi.max(), nf )
                 thrsi = 24*( jdi-slcs['jd'][0] ) # time since start of visit in hours
                 torbi = slcs['auxvars'][analysis]['torb'][scanixs[k]]
-                fluxi = slcs['lc_flux'][lctype][w][s][scanixs[k],self.chix]
-                uncsi = slcs['lc_uncs'][lctype][w][s][scanixs[k],self.chix]
+                fluxi = slcs['lc_flux'][lctype][w][l][s][scanixs[k],self.chix]
+                uncsi = slcs['lc_uncs'][lctype][w][l][s][scanixs[k],self.chix]
                 data += [ np.column_stack( [ jdi, thrsi, torbi, fluxi, uncsi ] ) ]
                 i2 = i1+len( fluxi )
                 ixs[dset][k] = np.arange( i1, i2 )

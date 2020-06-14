@@ -844,6 +844,7 @@ class WFC3SpecFitAnalytic():
     
     def __init__( self ):
         self.results_dir = ''
+        self.odirSub = ''
         self.akey = ''
         self.analysis = 'rdiff'
         self.scankeys = {}
@@ -1884,11 +1885,11 @@ class WFC3SpecFitAnalytic():
             else:
                 pdb.set_trace()
         dirbase = os.path.join( dirbase, dirext )
-        if self.akey=='':
-            print( '\n\nMust set akey to create output folder for this particular analysis\n\n' )
+        if self.odirSub=='':
+            print( '\n\nMust set odirSub to create output folder for this particular analysis\n\n' )
             pdb.set_trace()
         else:
-            self.odir = os.path.join( dirbase, self.akey )
+            self.odir = os.path.join( dirbase, self.odirSub )
         self.odir = os.path.join( self.odir, 'nchan{0:.0f}'.format( self.nchannels ) )
         # Don't bother with the reduction parameters in the filenames.
         # That can be done separately with a custom routine defined by
@@ -1904,8 +1905,9 @@ class WFC3SpecFitAnalytic():
             betastr = 'beta_free'
         else:
             betastr = 'beta_fixed'
-        oname = 'spec.{0}.{1}.{2}.{3}.mpfit.{4}base.ch{5:.0f}.pkl'\
-            .format( self.analysis, betastr, self.lctype, ldkey, self.ttrend, self.chix )
+        oname = 'spec.{0}.{1}.{2}.{3}.mpfit.{4}base.{5}.ch{6:.0f}.pkl'\
+            .format( self.analysis, betastr, self.lctype, ldkey, \
+                     self.ttrend, self.akey, self.chix )
         opath = os.path.join( self.odir, oname )
         return opath
     

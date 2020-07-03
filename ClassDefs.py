@@ -392,8 +392,8 @@ class WFC3SpecFitGP():
             nf = 500
             jdf = np.r_[ z['jd'].min():z['jd'].max():1j*nf ]
             tvf = np.r_[ z['tv'].min():z['tv'].max():1j*nf ]
-            ttrendf = fitvals[k['a0']] + fitvals[k['a1']]*tvf
-            ttrend = fitvals[k['a0']] + fitvals[k['a1']]*z['tv']
+            baselinef = fitvals[k['a0']] + fitvals[k['a1']]*tvf
+            baseline = fitvals[k['a0']] + fitvals[k['a1']]*z['tv']
             if tr_type=='primary':
                 batpar.rp = fitvals[k['RpRs']]
                 if ( self.ld.find( 'quad' )>=0 )*( self.ld.find( 'free' )>=0 ):
@@ -407,7 +407,7 @@ class WFC3SpecFitGP():
                                            fac=fac )
             psignalf = pmodelf.light_curve( batpar )
             psignal = pmodel.light_curve( batpar )
-            resids = z['flux']/( psignal*ttrend )-1. # model=psignal*ttrend*(1+GP)
+            resids = z['flux']/( psignal*baseline )-1. # model=psignal*baseline*(1+GP)
             
             gp = z['zgp']['gp']
             Alabel = z['zgp']['Alabel_global']
@@ -431,11 +431,11 @@ class WFC3SpecFitGP():
             gp.etrain = z['uncs']*beta
             gp.dtrain = np.reshape( resids, [ resids.size, 1 ] )
             mu, sig = gp.predictive( xnew=gp.xtrain, enew=gp.etrain )
-            #systematics = ttrend#+mu.flatten()#*( mu.flatten() + 1 )
-            bestfits = { 'psignal':psignal, 'ttrend':ttrend, 'mu':mu.flatten(), \
-                         'jdf':jdf, 'psignalf':psignalf, 'ttrendf':ttrendf }
-            zout = { 'psignal':psignal, 'ttrend':ttrend, 'mu':mu.flatten(), \
-                     'jdf':jdf, 'psignalf':psignalf, 'ttrendf':ttrendf }
+            #systematics = baseline#+mu.flatten()#*( mu.flatten() + 1 )
+            bestfits = { 'psignal':psignal, 'baseline':baseline, 'mu':mu.flatten(), \
+                         'jdf':jdf, 'psignalf':psignalf, 'baselinef':baselinef }
+            zout = { 'psignal':psignal, 'baseline':baseline, 'mu':mu.flatten(), \
+                     'jdf':jdf, 'psignalf':psignalf, 'baselinef':baselinef }
             return { 'arrays':zout, 'batpar':batpar, 'pmodel':pmodel }
         return EvalModel
     
@@ -810,9 +810,9 @@ class WFC3SpecFitGP():
     def GetGPLogLikelihood( self, jd, flux, uncs, tv, parents, \
                             zgp, batpar, pmodel, lineartbase ):
         if lineartbase==True:
-            ttrend = parents['a0'] + parents['a1']*tv#[ixs]
+            baseline = parents['a0'] + parents['a1']*tv#[ixs]
         else:
-            ttrend = parents['a0']
+            baseline = parents['a0']
         if self.syspars['tr_type']=='primary':
             if batpar.limb_dark=='quadratic':
                 batpar.u = np.array( [ parents['gam1'], parents['gam2'] ] )
@@ -824,8 +824,8 @@ class WFC3SpecFitGP():
             psignal = self.EvalPsignalSecondary( jd, parents, batpar, pmodel )
         else:
             pdb.set_trace()
-        #resids = flux - psignal*ttrend
-        resids = flux/( psignal*ttrend )-1. # model=psignal*ttrend*(1+GP)
+        #resids = flux - psignal*baseline
+        resids = flux/( psignal*baseline )-1. # model=psignal*baseline*(1+GP)
         logiL = []
         for i in zgp['logiLlabels_local']:
             logiL += [ parents[i] ]
@@ -857,7 +857,7 @@ class WFC3SpecFitAnalytic():
         self.syspars = {}
         self.ntrials = 20
         self.chix = 0
-        self.ttrend = 'linear'
+        self.baseline = 'linearX'
         self.ramp_model = None
         #self.ramp_model = 'DE'
         self.rampScanShare = True
@@ -912,9 +912,10 @@ class WFC3SpecFitAnalytic():
                 jdf = np.linspace( jdi.min(), jdi.max(), nf )
                 thrsi = 24*( jdi-slcs['jd'][0] ) # time since start of visit in hours
                 torbi = slcs['auxvars'][analysis]['torb'][scanixs[k]]
+                dwavi = slcs['auxvars'][analysis]['wavshift_pix'][scanixs[k]]
                 fluxi = slcs['lc_flux'][lctype][w][l][s][scanixs[k],self.chix]
                 uncsi = slcs['lc_uncs'][lctype][w][l][s][scanixs[k],self.chix]
-                data += [ np.column_stack( [ jdi, thrsi, torbi, fluxi, uncsi ] ) ]
+                data += [ np.column_stack( [ jdi, thrsi, torbi, dwavi, fluxi, uncsi ] ) ]
                 i2 = i1+len( fluxi )
                 ixs[dset][k] = np.arange( i1, i2 )
                 self.keepixs[dset] += [ np.arange( slcs['jd'].size )[scanixs[k]] ]
@@ -1111,12 +1112,14 @@ class WFC3SpecFitAnalytic():
             ixsdk = ixsd[dset][k] # data ixs for current dataset + scan direction
             thrsdk = self.data[:,1][ixsdk]
             torbdk = self.data[:,2][ixsdk]
-            fluxdk = self.data[:,3][ixsdk]
+            dwavdk = self.data[:,3][ixsdk]
+            bvardk = thrsdk # TODO allow this to be another variable
+            fluxdk = self.data[:,4][ixsdk]
             idkey = '{0}{1}'.format( dset, k )
             # Run a quick double-exponential ramp fit on the first
             # and last HST orbits to get reasonable starting values
             # for the parameters:
-            rpars0, fluxcik = self.PrelimDEFit( thrsdk, torbdk, fluxdk )
+            rpars0, fluxcik = self.PrelimDEFit( bvardk, thrsdk, torbdk, fluxdk )
             rinit = np.concatenate( [ rinit, rpars0 ] )
             nrpar = len( rpars0 )
             rixs[idkey] = np.arange( c*nrpar, (c+1)*nrpar )
@@ -1135,7 +1138,9 @@ class WFC3SpecFitAnalytic():
         ixsd = self.data_ixs
         thrs = self.data[:,1]
         torb = self.data[:,2]
-        flux = self.data[:,3]
+        dwav = self.data[:,3]
+        bvar = thrs # TODO allow this to be another variable        
+        flux = self.data[:,4]
 
         # Must loop over scan directions to get fluxc right
         # for each scan direction:
@@ -1145,10 +1150,11 @@ class WFC3SpecFitAnalytic():
             ixsk = ixsd[dataset][k] # data ixs for current dataset + scan direction
             # Run a quick double-exponential ramp fit on the first and last HST
             # orbits to get reasonable starting values for the parameters:
-            rpars0k, fluxck = self.PrelimDEFit( thrs[ixsk], torb[ixsk], flux[ixsk] )
-            # Note that the above ramp fit will perform fit with self.ttrend, 
+            rpars0k, fluxck = self.PrelimDEFit( bvar[ixsk], thrs[ixsk], \
+                                                torb[ixsk], flux[ixsk] )
+            # Note that the above ramp fit will perform fit with self.baseline, 
             # then return only the ramp parameters, but fluxc will be the flux
-            # corrected by model=ramp*ttrend, which is then used for a
+            # corrected by model=ramp*baseline, which is then used for a
             # preliminary planet signal fit.
             fluxc[ixsk] = fluxck
             rpars0[k] = rpars0k
@@ -1179,7 +1185,8 @@ class WFC3SpecFitAnalytic():
     def PrepRampParsORIGINAL( self ):
         thrs = self.data[:,1]
         torb = self.data[:,2]
-        flux = self.data[:,3]
+        dwav = self.data[:,3]
+        flux = self.data[:,4]
         ixsd = self.data_ixs
         # For each scan direction, the systematics model consists of a
         # double-exponential ramp (a1,a2,a3,a4,a5):
@@ -1219,18 +1226,18 @@ class WFC3SpecFitAnalytic():
         #pdb.set_trace()
         return r, fluxc
 
-    def PrelimDEFit( self, thrs, torb, flux ):
+    def PrelimDEFit( self, bvar, thrs, torb, flux ):
         """
         Performs preliminary fit for the ramp systematics, only
         fitting to the first and last HST orbits.
         """
-        if self.ttrend=='linear':
+        if ( self.baseline=='linearT' )+( self.baseline=='linearX' ):
             rfunc = UR.DERampLinBase
             nbase = 2
-        elif self.ttrend=='quadratic':
+        elif self.baseline=='quadratic':
             rfunc = UR.DERampQuadBase
             nbase = 3
-        elif self.ttrend=='exponential':
+        elif self.baseline=='exponential':
             rfunc = UR.DERampExpBase
             nbase = 3
         else:
@@ -1238,8 +1245,8 @@ class WFC3SpecFitAnalytic():
         orbixs = UR.SplitHSTOrbixs( thrs )
         ixs = np.concatenate( [ orbixs[0], orbixs[-1] ] )
         def CalcRMS( pars ):
-            ttrend, ramp = rfunc( thrs[ixs], torb[ixs], pars )
-            resids = flux[ixs]-ttrend*ramp
+            baseline, ramp = rfunc( bvar[ixs], thrs[ixs], torb[ixs], pars )
+            resids = flux[ixs]-baseline*ramp
             rms = np.sqrt( np.mean( resids**2. ) )
             return rms
         ntrials = 30
@@ -1271,7 +1278,7 @@ class WFC3SpecFitAnalytic():
         pbest = pfit[np.argmin(rms)]            
         a1, a2, a3, a4, a5 = pbest[:-nbase]
         rpars = [ a1, a2, a3, a4, a5 ]
-        tfit, rfit = rfunc( thrs, torb, pbest )
+        tfit, rfit = rfunc( bvar, thrs, torb, pbest )
         #fluxc = flux/( tfit*rfit )
         fluxc = flux/rfit
         return rpars, fluxc
@@ -1280,15 +1287,15 @@ class WFC3SpecFitAnalytic():
         """
         Returns clean starting arrays for baseline trend arrays.
         """
-        if self.ttrend=='linear':
+        if ( self.baseline=='linearT' )+( self.baseline=='linearX' ):
             binit0 = [ 1, 0 ]
             bfixed0 = [ 0, 0 ]
             blabels0 = [ 'b0', 'b1' ]
-        elif self.ttrend=='quadratic':
+        elif self.baseline=='quadratic':
             binit0 = [ 1, 0, 0 ]
             bfixed0 = [ 0, 0, 0 ]
             blabels0 = [ 'b0', 'b1', 'b2' ]
-        elif self.ttrend=='exp-decay':
+        elif self.baseline=='expDecayT':
             binit0 = [ 1, 0, 0 ]
             bfixed0 = [ 0, 0, 0 ]
             blabels0 = [ 'b0', 'b1', 'b2' ]
@@ -1316,23 +1323,27 @@ class WFC3SpecFitAnalytic():
         blabels = []
         bixs = {}
         c = 0 # counter
+        if ( self.baseline=='linearT' ):
+            bvar = self.data[:,1]
+        elif ( self.baseline=='linearX' ):
+            bvar = self.data[:,3]
         for k in self.scankeys[dataset]:
             idkey = '{0}{1}'.format( dataset, k )
             ixsk = self.data_ixs[dataset][k]
-            thrsk = self.data[:,1][ixsk]#[scanixs[k]]
-            fluxk = self.data[:,3][ixsk]#[scanixs[k]]
-            orbixs = UR.SplitHSTOrbixs( thrsk )
-            t1 = np.median( thrsk[0] )
-            t2 = np.median( thrsk[-1] )
+            bvark = bvar[ixsk]
+            fluxk = self.data[:,4][ixsk]#[scanixs[k]]
+            orbixs = UR.SplitHSTOrbixs( bvark )
+            t1 = np.median( bvark[0] )
+            t2 = np.median( bvark[-1] )
             f1 = np.median( fluxk[0] )
             f2 = np.median( fluxk[-1] )
             grad = ( f2-f1 )/( t2-t1 )
             offs = f1-grad*t1
-            if self.ttrend=='linear':
+            if ( self.baseline=='linearT' )+( self.baseline=='linearX' ):
                 binitk = [ offs, grad ]
-            elif self.ttrend=='quadratic':
+            elif self.baseline=='quadratic':
                 binitk = [ offs, grad, 0 ]
-            elif self.ttrend=='exponential':
+            elif self.baseline=='exponential':
                 binitk = [ offs, 0, 0 ]
             else:
                 pdb.set_trace()
@@ -1358,35 +1369,38 @@ class WFC3SpecFitAnalytic():
         # Forward scan is the reference:
         k = 'f'
         ixsf = self.data_ixs[dataset]['f']
-        thrsf = self.data[:,1][ixsf]
-        fluxf = self.data[:,3][ixsf]
-        orbixs = UR.SplitHSTOrbixs( thrsf )
-        t1f = np.median( thrsf[0] )
-        t2f = np.median( thrsf[-1] )
+        if ( self.baseline=='linearT' ):
+            bvarf = self.data[:,1][ixsf]
+        elif ( self.baseline=='linearX' ):
+            bvarf = self.data[:,3][ixsf]
+        fluxf = self.data[:,4][ixsf]
+        orbixs = UR.SplitHSTOrbixs( bvarf )
+        t1f = np.median( bvarf[0] )
+        t2f = np.median( bvarf[-1] )
         f1f = np.median( fluxf[0] )
         f2f = np.median( fluxf[-1] )
         grad = ( f2f-f1f )/( t2f-t1f )
         offsf = f1f-grad*t1f
         # Estimate offset of backward-scan flux:
         ixsb = self.data_ixs[dataset]['b']
-        fluxb = self.data[:,3][ixsb]
+        fluxb = self.data[:,4][ixsb]
         f2b = np.median( fluxb[-1] )
         offsb = f2f/f2b
         
-        if self.ttrend=='linear':
+        if ( self.baseline=='linearT' )+( self.baseline=='linearX' ):
             binit = np.array( [ offsf, grad, offsb ] )
             bfixed = np.array( [ 0, 0, 0 ] )
             blabels = [ '{0}_{1}f'.format( blabels0[0], dataset ), \
                         '{0}_{1}'.format( blabels0[1], dataset ), \
                         '{0}_{1}b'.format( blabels0[0], dataset ) ]
-        elif self.ttrend=='quadratic':
+        elif self.baseline=='quadratic':
             binit = np.array( [ offsf, grad, 0, offsb ] )
             bfixed = np.array( [ 0, 0, 0, 0 ] )
             blabels = [ '{0}_{1}f'.format( blabels0[0], dataset ), \
                         '{0}_{1}'.format( blabels0[1], dataset ), \
                         '{0}_{1}'.format( blabels0[2], dataset ), \
                         '{0}_{1}b'.format( blabels0[0], dataset ) ]
-        elif self.ttrend=='exp-decay':
+        elif self.baseline=='exp-decay':
             binit = np.array( [ offsf, 0, 0, offsb ] )
             bfixed = np.array( [ 0, 0, 0, 0 ] )
             blabels = [ '{0}_{1}f'.format( blabels0[0], dataset ), \
@@ -1485,7 +1499,7 @@ class WFC3SpecFitAnalytic():
         for g in range( niter ):
             pars_fit = self.RunTrials( self.ntrials )
             mfit = self.CalcModel( pars_fit )
-            ffit = mfit['psignal']*mfit['ttrend']
+            ffit = mfit['psignal']*mfit['baseline']
             # WORKING
             ixsmg = {}
             for dset in self.dsets:
@@ -1497,8 +1511,8 @@ class WFC3SpecFitAnalytic():
                     ixsdk = ixsd[dset][k]
                     ixsmzk = ixsmg[k]
                     idkey = '{0}{1}'.format( dset, k )
-                    residsk = self.data[ixsdk,3]-ffit[ixsdk]
-                    uncsk = self.data[ixsdk,4]
+                    residsk = self.data[ixsdk,4]-ffit[ixsdk]
+                    uncsk = self.data[ixsdk,5]
                     nsig = np.abs( residsk )/uncsk                           
                     ixs = ( nsig<sigcut ) # within threshold
                     ncull += int( nsig.size-ixs.sum() )
@@ -1529,8 +1543,8 @@ class WFC3SpecFitAnalytic():
                         idkey = '{0}{1}'.format( dset, k )
                         ixsdk = ixsd[dset][k]
                         #ixsmk = ixsm[dset][k]
-                        z += [ ( self.data[ixsdk,3]-ffit[ixsdk] )/self.data[ixsdk,4] ]
-                        uncs += [ self.data[ixsdk,4] ]
+                        z += [ ( self.data[ixsdk,4]-ffit[ixsdk] )/self.data[ixsdk,5] ]
+                        uncs += [ self.data[ixsdk,5] ]
                         npars += len( pars_fit[ixsp[idkey]] )
                     z = np.concatenate( z )
                     chi2 = np.sum( z**2. )
@@ -1539,25 +1553,25 @@ class WFC3SpecFitAnalytic():
                     for k in self.scankeys[dset]:
                         rescale[dset][k] = np.sqrt( rchi2 )
                         # The original photon noise:
-                        self.sigw[dset][k] = np.median( self.data[ixsdk,4] )
+                        self.sigw[dset][k] = np.median( self.data[ixsdk,5] )
                         print( '{0:.2f} for {1}{2}'.format( rescale[dset][k], dset, k ) )
                         if np.isfinite( rescale[dset][k] )==False: pdb.set_trace()
                         # The data variable contains the rescaled noise:
-                        self.data[ixsd[dset][k],4] *= rescale[dset][k]
+                        self.data[ixsd[dset][k],5] *= rescale[dset][k]
             else:
                 for dset in self.dsets:
                     rescale[dset] = {}
                     for k in self.scankeys[dset]:
                         idkey = '{0}{1}'.format( dset, k )
                         ixsdk = ixsd[dset][k]
-                        zk = ( self.data[ixsdk,3]-ffit[ixsdk] )/self.data[ixsdk,4]
+                        zk = ( self.data[ixsdk,4]-ffit[ixsdk] )/self.data[ixsdk,5]
                         chi2k = np.sum( zk**2. )
                         rchi2k = chi2k/float( len( residsk )-len( pars_fit[ixsp[idkey]] ) )
                         rescale[dset][k] = np.sqrt( rchi2k )
                         print( '{0:.2f} for {1}{2}'.format( rescale[dset][k], dset, k ) )
                 for dset in self.dsets:
                     for k in self.scankeys[dset]:
-                        self.data[ixsd[dset][k],4] *= rescale[dset][k]
+                        self.data[ixsd[dset][k],5] *= rescale[dset][k]
             self.uncertainties_rescale = rescale
         else:
             self.uncertainties_rescale = 1
@@ -1589,13 +1603,13 @@ class WFC3SpecFitAnalytic():
         inputs to their appropriate functions. 
         """
         
-        if self.ttrend=='linear':
-            def bfunc( thrs, pars ):
-                return pars[0] + pars[1]*thrs
-        elif self.ttrend=='quadratic':
+        if ( self.baseline=='linearT' )+( self.baseline=='linearX' ):
+            def bfunc( bvar, pars ):
+                return pars[0] + pars[1]*bvar
+        elif self.baseline=='quadratic':
             def bfunc( thrs, pars ):
                 return pars[0] + pars[1]*thrs + pars[2]*( thrs**2. )
-        elif self.ttrend=='exponential':
+        elif self.baseline=='exponential':
             def bfunc( thrs, pars ):
                 return pars[0] + pars[1]*np.exp( -pars[2]*thrs )
         else:
@@ -1604,13 +1618,18 @@ class WFC3SpecFitAnalytic():
         batp = self.batpars
         pmod = self.pmodels
         psignal = np.zeros( ndat )
-        ttrend = np.zeros( ndat )
+        baseline = np.zeros( ndat )
         jd = self.data[:,0]
         thrs = self.data[:,1]
         torb = self.data[:,2]
-        flux = self.data[:,3]
-        uncs = self.data[:,4]
+        dwav = self.data[:,3]
+        flux = self.data[:,4]
+        uncs = self.data[:,5]
         ndsets = len( self.dsets )
+        if ( self.baseline=='linearT' ):
+            bvar = thrs
+        elif ( self.baseline=='linearX' ):
+            bvar = dwav
         self.UpdateBatpars( pars )
         for i in range( ndsets ):
             dset = self.dsets[i]
@@ -1632,8 +1651,8 @@ class WFC3SpecFitAnalytic():
                     s = 1 # EcDepth
                 psignal[ixsdk] = pmod[idkey].light_curve( batp[idkey] )
                 # Evaluate the systematics signal:
-                ttrend[ixsdk] = bfunc( thrs[ixsdk], parsk[s:] )
-        return { 'psignal':psignal, 'ttrend':ttrend }
+                baseline[ixsdk] = bfunc( bvar[ixsdk], parsk[s:] )
+        return { 'psignal':psignal, 'baseline':baseline }
 
     def CalcModelRampDE( self, pars ):
         """
@@ -1645,11 +1664,11 @@ class WFC3SpecFitAnalytic():
         So you can always unpack these in this order and send them as
         inputs to their appropriate functions. 
         """
-        if self.ttrend=='linear':
+        if self.baseline=='linear':
             rfunc = UR.DERampLinBase
-        elif self.ttrend=='quadratic':
+        elif self.baseline=='quadratic':
             rfunc = UR.DERampQuadBase
-        elif self.ttrend=='exponential':
+        elif self.baseline=='exponential':
             rfunc = UR.DERampExpBase
         else:
             pdb.set_trace()
@@ -1657,14 +1676,19 @@ class WFC3SpecFitAnalytic():
         batp = self.batpars
         pmod = self.pmodels
         psignal = np.zeros( ndat )
-        ttrend = np.zeros( ndat )
+        baseline = np.zeros( ndat )
         ramp = np.zeros( ndat )
         jd = self.data[:,0]
         thrs = self.data[:,1]
         torb = self.data[:,2]
-        flux = self.data[:,3]
-        uncs = self.data[:,4]
+        dwav = self.data[:,3]
+        flux = self.data[:,4]
+        uncs = self.data[:,5]
         ndsets = len( self.dsets )
+        if ( self.baseline=='linearT' ):
+            bvar = thrs
+        elif ( self.baseline=='linearX' ):
+            bvar = dwav
         self.UpdateBatpars( pars )
         for i in range( ndsets ):
             dset = self.dsets[i]
@@ -1685,22 +1709,22 @@ class WFC3SpecFitAnalytic():
                     s = 1 # EcDepth
                 psignal[ixsdk] = pmod[idkey].light_curve( batp[idkey] )
                 # Evaluate the systematics signal:
-                tfit, rfit = rfunc( thrs[ixsdk], torb[ixsdk], parsk[s:] )
-                ttrend[ixsdk] = tfit
+                tfit, rfit = rfunc( bvar[ixsdk], thrs[ixsdk], torb[ixsdk], parsk[s:] )
+                baseline[ixsdk] = tfit
                 ramp[ixsdk] = rfit
-        return { 'psignal':psignal, 'ttrend':ttrend, 'ramp':ramp }
+        return { 'psignal':psignal, 'baseline':baseline, 'ramp':ramp }
     
 
     def CalcChi2( self ):
         pfit = self.model_fit['psignal'] # planet signal
-        sfit = self.model_fit['ttrend'] # systematics
+        sfit = self.model_fit['baseline'] # systematics
         ffit = pfit*sfit
         chi2 = 0
         for dset in list( self.data_ixs.keys() ):
             for k in list( self.data_ixs[dset].keys() ):
                 ixsdk = self.data_ixs[dset][k]
-                residsk = ( self.data[ixsdk,3]-ffit[ixsdk] )
-                uncsk = self.data[ixsdk,4]
+                residsk = ( self.data[ixsdk,4]-ffit[ixsdk] )
+                uncsk = self.data[ixsdk,5]
                 chi2 += np.sum( ( residsk/uncsk )**2. )
         return chi2
     
@@ -1796,6 +1820,8 @@ class WFC3SpecFitAnalytic():
     def BestFitsOut( self ):
         jd = self.data[:,0]
         thrs = self.data[:,1]
+        bvar = thrs # allow for other bvar
+        dwav = self.data[:,3]
         self.bestfits = {}
         nf = 500
         for dset in list( self.data_ixs.keys() ):
@@ -1804,29 +1830,34 @@ class WFC3SpecFitAnalytic():
                 idkey = '{0}{1}'.format( dset, k )
                 ixsdk = self.data_ixs[dset][k]
                 pfitdk = self.model_fit['psignal'][ixsdk] # planet signal
-                tfitdk = self.model_fit['ttrend'][ixsdk] # baseline trend
+                tfitdk = self.model_fit['baseline'][ixsdk] # baseline trend
                 jddk = jd[ixsdk]
                 jdfdk = np.linspace( jddk.min(), jddk.max(), nf )
                 pmodfk = batman.TransitModel( self.batpars[idkey], jdfdk, \
                                               transittype=self.syspars['tr_type'] )
                 pfitfdk = pmodfk.light_curve( self.batpars[idkey] )
-                # Evaluate ttrend - would be better to have a more elegant way of doing this:
+                # Evaluate baseline - would be better to have a more
+                # elegant way of doing this:
                 thrsdk = thrs[ixsdk]
                 thrsfdk = np.linspace( thrsdk.min(), thrsdk.max(), nf )
+                bvardk = bvar[ixsdk]
+                bvarfdk = np.linspace( bvardk.min(), bvardk.max(), nf )
+                dwavdk = dwav[ixsdk]
+                dwavfdk = np.linspace( dwavdk.min(), dwavdk.max(), nf )
                 pfit = self.pars_fit['pvals'][self.par_ixs[idkey]]
-                if self.ttrend=='linear':
-                    ttrendfdk = pfit[-2]+pfit[-1]*thrsfdk
-                elif self.ttrend=='quadratic':
-                    ttrendfdk = pfit[-3]+pfit[-2]*thrsfdk+( pfit[-1]*( thrsfdk**2. ) )
-                elif self.ttrend=='exponential':
-                    ttrendfdk = pfit[-3]+pfit[-2]*np.exp( -pfit[-1]*thrsfdk )
+                if ( self.baseline=='linearT' )+( self.baseline=='linearX' ):
+                    baselinefdk = pfit[-2]+pfit[-1]*bvarfdk
+                elif self.baseline=='quadratic':
+                    baselinefdk = pfit[-3]+pfit[-2]*bvarfdk+( pfit[-1]*( bvarfdk**2. ) )
+                elif self.baseline=='exponential':
+                    baselinefdk = pfit[-3]+pfit[-2]*np.exp( -pfit[-1]*bvarfdk )
                 self.bestfits[dset][k] = {}
                 self.bestfits[dset][k]['jd'] = jddk
                 self.bestfits[dset][k]['psignal'] = pfitdk
-                self.bestfits[dset][k]['ttrend'] = tfitdk
+                self.bestfits[dset][k]['baseline'] = tfitdk
                 self.bestfits[dset][k]['jdf'] = jdfdk
                 self.bestfits[dset][k]['psignalf'] = pfitfdk
-                self.bestfits[dset][k]['ttrendf'] = ttrendfdk
+                self.bestfits[dset][k]['baselinef'] = baselinefdk
         return None
     
     def TxtOut( self, save_to_file=True ):
@@ -1907,7 +1938,7 @@ class WFC3SpecFitAnalytic():
             betastr = 'beta_fixed'
         oname = 'spec.{0}.{1}.{2}.{3}.mpfit.{4}base.{5}.ch{6:.0f}.pkl'\
             .format( self.analysis, betastr, self.lctype, ldkey, \
-                     self.ttrend, self.akey, self.chix )
+                     self.baseline, self.akey, self.chix )
         opath = os.path.join( self.odir, oname )
         return opath
     
@@ -1962,12 +1993,12 @@ class WFC3SpecFitAnalytic():
             Function defined in format required by mpfit.
             """
             m = self.CalcModel( pars )
-            fullmodel = m['psignal']*m['ttrend']
+            fullmodel = m['psignal']*m['baseline']
 
-            resids = data[:,3]-fullmodel
+            resids = data[:,4]-fullmodel
             status = 0
             rms = np.sqrt( np.mean( resids**2. ) )
-            return [ status, resids/data[:,4] ]
+            return [ status, resids/data[:,5] ]
         self.npar = len( self.par_labels )
         parinfo = []
         for i in range( self.npar ):
@@ -2062,6 +2093,9 @@ class WFC3WhiteFitDE():
         ixs containing the indices of each dataset within that
         big data array.
         """
+        if ( self.baselineScanShare==True )+( self.rampScanShare==True ):
+            print( '\nWARNGING: still need to adapt scanShare options to whiteFitDE\n' )
+            pdb.set_trace()
         self.dsets = list( self.wlcs.keys() )
         ndsets = len( self.dsets )
         analysis = self.analysis
@@ -2101,9 +2135,10 @@ class WFC3WhiteFitDE():
                 jdf = np.linspace( jdi.min(), jdi.max(), nf )
                 thrsi = 24*( jdi-wlc['jd'][0] ) # time since start of visit in hours
                 torbi = wlc['whitelc'][analysis]['auxvars']['torb'][scanixs[k]]
+                dwavi = wlc['whitelc'][analysis]['auxvars']['wavshift_pix'][scanixs[k]]
                 fluxi = wlc['whitelc'][analysis]['flux'][scanixs[k]]
                 uncsi = wlc['whitelc'][analysis]['uncs'][scanixs[k]]
-                data += [ np.column_stack( [ jdi, thrsi, torbi, fluxi, uncsi ] ) ]
+                data += [ np.column_stack( [ jdi, thrsi, torbi, dwavi, fluxi, uncsi ] ) ]
                 i2 = i1+len( fluxi )
                 ixs[dset][k] = np.arange( i1, i2 )
                 self.keepixs[dset] += [ np.arange( wlc['jd'].size )[scanixs[k]] ]
@@ -2122,6 +2157,9 @@ class WFC3WhiteFitDE():
         self.data = np.vstack( data ) 
         self.data_ixs = ixs
         #keepixs = np.concatenate( ixsm )
+        #print( np.shape( data ) )
+        #plt.figure()
+        #plt.plot( self.data[:,0], self.data[:,4], 'og' )
         #pdb.set_trace()
         return None
 
@@ -2246,11 +2284,15 @@ class WFC3WhiteFitDE():
         """
         Returns clean starting arrays for baseline trend arrays.
         """
-        if self.ttrend=='linear':
+        if ( self.baseline=='linearT' )+( self.baseline=='linearX' ):
             binit0 = [ 1, 0 ]
             bfixed0 = [ 0, 0 ]
             blabels0 = [ 'b0', 'b1' ]
-        elif self.ttrend=='quadratic':
+        elif self.baseline=='quadratic':
+            binit0 = [ 1, 0, 0 ]
+            bfixed0 = [ 0, 0, 0 ]
+            blabels0 = [ 'b0', 'b1', 'b2' ]
+        elif self.baseline=='expDecayT':
             binit0 = [ 1, 0, 0 ]
             bfixed0 = [ 0, 0, 0 ]
             blabels0 = [ 'b0', 'b1', 'b2' ]
@@ -2342,6 +2384,8 @@ class WFC3WhiteFitDE():
         # Sort out the baseline indices for each scan direction
         # and normalize the data using the preliminary ramp fit:
         thrs = self.data[:,1]
+        dwav = self.data[:,3]
+        bvar = thrs # TODO allow for other bvar
         fluxn = {} # normalized flux
         binit = []
         bixs = {}
@@ -2357,12 +2401,12 @@ class WFC3WhiteFitDE():
             c += nbpar
         if self.Tmid_free==True:
             nppar = len( pinit )
-            pfiti = self.OptimizeDelTBaseline( dataset, thrs, fluxn, pinit, \
+            pfiti = self.OptimizeDelTBaseline( dataset, bvar, thrs, fluxn, pinit, \
                                                binit, bixs, transittype )
             delT = pfiti[1]
         else:
             nppar = 1 # because delT excluded
-            pfiti = self.OptimizeBaselineOnly( dataset, thrs, fluxn, pinit, \
+            pfiti = self.OptimizeBaselineOnly( dataset, bvar, thrs, fluxn, pinit, \
                                                binit, bixs, transittype )
             
         bpars_init = []
@@ -2380,7 +2424,8 @@ class WFC3WhiteFitDE():
         b = { 'blabels':blabels, 'bfixed':bfixed, 'bpars_init':bpars_init, 'bixs':bixs }
         return delT, b
 
-    def OptimizeDelTBaseline( self, dataset, thrs, fluxn, pinit, binit, bixs, transittype ):
+    def OptimizeDelTBaseline( self, dataset, bvar, thrs, fluxn, pinit, \
+                              binit, bixs, transittype ):
         nppar = len( pinit )
         pars0 = np.concatenate( [ pinit, binit ] )
         Tmid0 = self.Tmid0[dataset]
@@ -2403,10 +2448,13 @@ class WFC3WhiteFitDE():
                 psignal[idkey] = self.pmodels[idkey].light_curve( self.batpars[idkey] )
                 bparsk = p[nppar+bixs[idkey]]
                 thrsk = thrs[self.data_ixs[dataset][k]]
-                if self.ttrend=='linear':
-                    baseline[idkey] = bparsk[0] + bparsk[1]*thrsk
-                elif self.ttrend=='quadratic':
-                    baseline[idkey] = bparsk[0] + bparsk[1]*thrsk + bparsk[2]*( thrsk**2. )
+                bvark = bvar[self.data_ixs[dataset][k]]                
+                if ( self.baseline=='linearT' )+( self.baseline=='linearX' ):
+                    baseline[idkey] = bparsk[0] + bparsk[1]*bvark
+                elif self.baseline=='quadratic':
+                    baseline[idkey] = bparsk[0] + bparsk[1]*bvark + bparsk[2]*( bvark**2. )
+                elif self.baseline=='exponential':
+                    baseline[idkey] = bparsk[0] + bparsk[1]*np.exp( -bparsk[2]*bvark )
                 else:
                     pdb.set_trace()
             return psignal, baseline
@@ -2421,7 +2469,8 @@ class WFC3WhiteFitDE():
         return scipy.optimize.fmin( CalcRMS, pars0 )
         
     
-    def OptimizeBaselineOnly( self, dataset, thrs, fluxn, pinit, binit, bixs, transittype ):
+    def OptimizeBaselineOnly( self, dataset, bvar, thrs, fluxn, pinit, \
+                              binit, bixs, transittype ):
         nppar = 1 # because delT is excluded
         pars0 = np.concatenate( [ [ pinit[0] ], binit ] ) # exclude delT here
         Tmid0 = self.Tmid0[dataset]
@@ -2444,10 +2493,11 @@ class WFC3WhiteFitDE():
                 psignal[idkey] = self.pmodels[idkey].light_curve( self.batpars[idkey] )
                 bparsk = p[nppar+bixs[idkey]]
                 thrsk = thrs[self.data_ixs[dataset][k]]
-                if self.ttrend=='linear':
-                    baseline[idkey] = bparsk[0] + bparsk[1]*thrsk
-                elif self.ttrend=='quadratic':
-                    baseline[idkey] = bparsk[0] + bparsk[1]*thrsk + bparsk[2]*( thrsk**2. )
+                bvark = bvar[self.data_ixs[dataset][k]]                
+                if ( self.baseline=='linearT' )+( self.baseline=='linearX' ):
+                    baseline[idkey] = bparsk[0] + bparsk[1]*bvark
+                elif self.baseline=='quadratic':
+                    baseline[idkey] = bvark[0] + bparsk[1]*bvark + bparsk[2]*( bvark**2. )
                 else:
                     pdb.set_trace()
             return psignal, baseline
@@ -2470,8 +2520,10 @@ class WFC3WhiteFitDE():
     
     def PrepRampPars( self ):
         thrs = self.data[:,1]
+        bvar = thrs # TODO allow for this to be another variable
         torb = self.data[:,2]
-        flux = self.data[:,3]
+        dwav = self.data[:,3]
+        flux = self.data[:,4]
         ixsd = self.data_ixs
         # For each scan direction, the systematics model consists of a
         # double-exponential ramp (a1,a2,a3,a4,a5):
@@ -2493,8 +2545,8 @@ class WFC3WhiteFitDE():
                 # Run a quick double-exponential ramp fit on the first
                 # and last HST orbits to get reasonable starting values
                 # for the parameters:
-                rpars0, fluxcik = self.PrelimDEFit( thrs[ixsdk], torb[ixsdk], \
-                                                    flux[ixsdk] )
+                rpars0, fluxcik = self.PrelimDEFit( bvar[ixsdk], thrs[ixsdk], \
+                                                    torb[ixsdk], flux[ixsdk] )
                 rinit = np.concatenate( [ rinit, rpars0 ] )
                 nrpar = len( rpars0 )
                 rixs[idkey] = np.arange( c*nrpar, (c+1)*nrpar )
@@ -2512,24 +2564,27 @@ class WFC3WhiteFitDE():
         return r, fluxc
 
     
-    def PrelimDEFit( self, thrs, torb, flux ):
+    def PrelimDEFit( self, bvar, thrs, torb, flux ):
         """
         Performs preliminary fit for the ramp systematics, only
         fitting to the first and last HST orbits.
         """
-        if self.ttrend=='linear':
+        if ( self.baseline=='linearT' )+( self.baseline=='linearX' ):            
             rfunc = UR.DERampLinBase
             nbase = 2
-        elif self.ttrend=='quadratic':
+        elif self.baseline=='quadratic':
             rfunc = UR.DERampQuadBase
+            nbase = 3
+        elif self.baseline=='exponential':
+            rfunc = UR.DERampExpBase
             nbase = 3
         else:
             pdb.set_trace()
         orbixs = UR.SplitHSTOrbixs( thrs )
         ixs = np.concatenate( [ orbixs[0], orbixs[-1] ] )
         def CalcRMS( pars ):
-            ttrend, ramp = rfunc( thrs[ixs], torb[ixs], pars )
-            resids = flux[ixs]-ttrend*ramp
+            baseline, ramp = rfunc( bvar[ixs], thrs[ixs], torb[ixs], pars )
+            resids = flux[ixs]-baseline*ramp
             rms = np.sqrt( np.mean( resids**2. ) )
             return rms
         ntrials = 30
@@ -2553,14 +2608,14 @@ class WFC3WhiteFitDE():
             #pinit = [ (1e-3)*np.random.randn(), 0.1+0.005*np.random.random(), \
             #          (1e-3)*np.random.randn(), 0.1+0.005*np.random.random(), \
             #          (1.+0.005*np.random.random() )/60., flux[-1], 0 ]
-            if self.ttrend=='quadratic': pinit += [ 0 ]
+            if self.baseline=='quadratic': pinit += [ 0 ]
             pfiti = scipy.optimize.fmin( CalcRMS, pinit, maxiter=1e4, xtol=1e-3, ftol=1e-4 )
             rms[i] = CalcRMS( pfiti )
             pfit += [ pfiti ]
         pbest = pfit[np.argmin(rms)]            
         a1, a2, a3, a4, a5 = pbest[:-nbase]
         rpars = [ a1, a2, a3, a4, a5 ]
-        tfit, rfit = rfunc( thrs, torb, pbest )
+        tfit, rfit = rfunc( bvar, thrs, torb, pbest )
         #fluxc = flux/( tfit*rfit )
         fluxc = flux/rfit
         return rpars, fluxc
@@ -2631,7 +2686,7 @@ class WFC3WhiteFitDE():
             for g in range( niter ):
                 pars_fit = self.RunTrials( self.ntrials )
                 mfit = self.CalcModel( pars_fit )
-                ffit = mfit['psignal']*mfit['ttrend']*mfit['ramp']
+                ffit = mfit['psignal']*mfit['baseline']*mfit['ramp']
                 ixsmg = {}
                 for dset in self.dsets:
                     scandirs = self.wlcs[dset]['scandirs'][ixsm[dset]]
@@ -2642,8 +2697,8 @@ class WFC3WhiteFitDE():
                         ixsdk = ixsd[dset][k]
                         ixsmzk = ixsmg[k]
                         idkey = '{0}{1}'.format( dset, k )
-                        residsk = self.data[ixsdk,3]-ffit[ixsdk]
-                        uncsk = self.data[ixsdk,4]
+                        residsk = self.data[ixsdk,4]-ffit[ixsdk]
+                        uncsk = self.data[ixsdk,5]
                         nsig = np.abs( residsk )/uncsk                           
                         ixs = ( nsig<sigcut ) # within threshold
                         ncull += int( nsig.size-ixs.sum() )
@@ -2688,9 +2743,9 @@ class WFC3WhiteFitDE():
                     idkey = '{0}{1}'.format( dset, k )
                     ixsdk = ixsd[dset][k]
                     #ixsmk = ixsm[dset][k]
-                    resids += [ self.data[ixsdk,3]-ffit[ixsdk] ]
-                    z += [ ( self.data[ixsdk,3]-ffit[ixsdk] )/self.data[ixsdk,4] ]
-                    uncs += [ self.data[ixsdk,4] ]
+                    resids += [ self.data[ixsdk,4]-ffit[ixsdk] ]
+                    z += [ ( self.data[ixsdk,4]-ffit[ixsdk] )/self.data[ixsdk,5] ]
+                    uncs += [ self.data[ixsdk,5] ]
                     npars += len( pars_fit[ixsp[idkey]] )
                 z = np.concatenate( z )
                 resids = np.concatenate( resids )
@@ -2702,7 +2757,7 @@ class WFC3WhiteFitDE():
                     #rescale[dset][k] = np.sqrt( rchi2 )
                     rescale[dset][k] = np.std( resids )/unc0
                     # The original photon noise:
-                    self.sigw[dset][k] = np.median( self.data[ixsdk,4] )
+                    self.sigw[dset][k] = np.median( self.data[ixsdk,5] )
                     print( '{0:.2f} for {1}{2}'.format( rescale[dset][k], dset, k ) )
                     if np.isfinite( rescale[dset][k] )==False: pdb.set_trace()
                     # The data variable contains the rescaled noise:
@@ -2715,11 +2770,11 @@ class WFC3WhiteFitDE():
                     idkey = '{0}{1}'.format( dset, k )
                     ixsdk = ixsd[dset][k]
                     #ixsmk = ixsm[dset][k]
-                    zk = ( self.data[ixsdk,3]-ffit[ixsdk] )/self.data[ixsdk,4]
+                    zk = ( self.data[ixsdk,4]-ffit[ixsdk] )/self.data[ixsdk,5]
                     chi2k = np.sum( zk**2. )
                     rchi2k = chi2k/float( zk.size-len( pars_fit[ixsp[idkey]] ) )
                     rescale[dset][k] = np.sqrt( rchi2k )
-                    self.sigw[dset][k] = np.median( self.data[ixsdk,4] )
+                    self.sigw[dset][k] = np.median( self.data[ixsdk,5] )
                     print( '{0:.2f} for {1}{2}'.format( rescale[dset][k], dset, k ) )
                     if np.isfinite( rescale[dset][k] )==False: pdb.set_trace()
             for dset in self.dsets:
@@ -2735,15 +2790,22 @@ class WFC3WhiteFitDE():
 
 
     def BestFitsOut( self ):
-        if self.ttrend=='linear':
+        if ( self.baseline=='linearT' )+( self.baseline=='linearX' ):            
             rfunc = UR.DERampLinBase
-        elif self.ttrend=='quadratic':
+        elif self.baseline=='quadratic':
             rfunc = UR.DERampQuadBase
+        elif self.baseline=='exponential':
+            rfunc = UR.DERampExpBase
         else:
             pdb.set_trace()
         jd = self.data[:,0]
         thrs = self.data[:,1]
         torb = self.data[:,2]
+        dwav = self.data[:,3]
+        if ( self.baseline=='linearT' ):
+            bvar = thrs
+        elif ( self.baseline=='linearX' ):
+            bvar = dwav
         self.bestfits = {}
         nf = 500
         for dset in list( self.data_ixs.keys() ):
@@ -2752,21 +2814,23 @@ class WFC3WhiteFitDE():
                 idkey = '{0}{1}'.format( dset, k )
                 ixsdk = self.data_ixs[dset][k]
                 pfitdk = self.model_fit['psignal'][ixsdk] # planet signal
-                tfitdk = self.model_fit['ttrend'][ixsdk] # baseline trend
+                tfitdk = self.model_fit['baseline'][ixsdk] # baseline trend
                 rfitdk = self.model_fit['ramp'][ixsdk] # ramp
                 jddk = jd[ixsdk]
                 thrsdk = thrs[ixsdk]
                 torbdk = torb[ixsdk]
+                bvardk = bvar[ixsdk]
                 jdfdk = np.linspace( jddk.min(), jddk.max(), nf )
                 thrsfdk = np.linspace( thrsdk.min(), thrsdk.max(), nf )
                 torbfdk = np.linspace( torbdk.min(), torbdk.max(), nf )
+                bvarfdk = np.linspace( bvardk.min(), bvardk.max(), nf )
                 pmodfk = batman.TransitModel( self.batpars[idkey], jdfdk, \
                                               transittype=self.syspars['tr_type'] )
                 pfitfdk = pmodfk.light_curve( self.batpars[idkey] )
                 self.bestfits[dset][k] = {}
                 self.bestfits[dset][k]['jd'] = jddk
                 self.bestfits[dset][k]['psignal'] = pfitdk
-                self.bestfits[dset][k]['ttrend'] = tfitdk
+                self.bestfits[dset][k]['baseline'] = tfitdk
                 self.bestfits[dset][k]['ramp'] = rfitdk
                 self.bestfits[dset][k]['jdf'] = jdfdk
                 self.bestfits[dset][k]['psignalf'] = pfitfdk
@@ -2782,20 +2846,20 @@ class WFC3WhiteFitDE():
                 else:
                     #s = 2 # EcDepth, delT
                     s = 4 # EcDepth, aRs, b, delT
-                tfit, rfit = rfunc( thrsfdk, torbfdk, parsk[s:] )
-                self.bestfits[dset][k]['ttrendf'] = tfit
+                tfit, rfit = rfunc( bvarfdk, thrsfdk, torbfdk, parsk[s:] )
+                self.bestfits[dset][k]['baselinef'] = tfit
         return None
     
     def CalcChi2( self ):
         pfit = self.model_fit['psignal'] # planet signal
-        sfit = self.model_fit['ttrend']*self.model_fit['ramp'] # systematics
+        sfit = self.model_fit['baseline']*self.model_fit['ramp'] # systematics
         ffit = pfit*sfit
         chi2 = 0
         for dset in list( self.data_ixs.keys() ):
             for k in list( self.data_ixs[dset].keys() ):
                 ixsdk = self.data_ixs[dset][k]
-                residsk = ( self.data[ixsdk,3]-ffit[ixsdk] )
-                uncsk = self.data[ixsdk,4]
+                residsk = ( self.data[ixsdk,4]-ffit[ixsdk] )
+                uncsk = self.data[ixsdk,5]
                 chi2 += np.sum( ( residsk/uncsk )**2. )
         return chi2
 
@@ -2882,8 +2946,8 @@ class WFC3WhiteFitDE():
             else:
                 parents[k] = mlevals[i]
         
-        flux = self.data[:,3]
-        uncs = self.data[:,4] # uncertainties_rescale has been applied in PreFitting()
+        flux = self.data[:,4]
+        uncs = self.data[:,5] # uncertainties_rescale has been applied in PreFitting()
         @pyhm.stochastic( observed=True )
         def loglikefunc( value=flux, parents=parents ):
             def logp( value, parents=parents ):
@@ -2891,7 +2955,7 @@ class WFC3WhiteFitDE():
                 for i in range( npar-ndsets ):
                     pars += [ parents[self.par_labels[i]] ]
                 m = self.CalcModel( np.array( pars ) )
-                fullmodel = m['psignal']*m['ttrend']*m['ramp']
+                fullmodel = m['psignal']*m['baseline']*m['ramp']
                 resids = value-fullmodel
                 # Rescale the white noise values for each dataset and scan direction:
                 residsr = []
@@ -3001,9 +3065,14 @@ class WFC3WhiteFitDE():
             Function defined in format required by mpfit.
             """
             m = self.CalcModel( pars )
-            fullmodel = m['psignal']*m['ttrend']*m['ramp']
-            resids = data[:,3]-fullmodel
+            fullmodel = m['psignal']*m['baseline']*m['ramp']
+            resids = data[:,4]-fullmodel
             status = 0
+            #plt.close('all')
+            #plt.figure()
+            #plt.plot( data[:,0], data[:,3], 'ok' )
+            #plt.plot( data[:,0], fullmodel, '-r' )
+            #pdb.set_trace()
             return [ status, resids/data[:,4] ]
         self.npar = len( self.par_labels )
         parinfo = []
@@ -3221,11 +3290,11 @@ class WFC3WhiteFitDE():
         nvisits = len( self.dsets )
         jd = self.data[:,0]
         thrs = self.data[:,1]
-        flux = self.data[:,3]
-        uncs = self.data[:,4]
+        flux = self.data[:,4]
+        uncs = self.data[:,5]
         ixsd = self.data_ixs
         pfit = self.model_fit['psignal']
-        sfit = self.model_fit['ramp']*self.model_fit['ttrend']
+        sfit = self.model_fit['ramp']*self.model_fit['baseline']
         ffit = pfit*sfit
         resids = flux-ffit
         cjoint = 'Cyan'#0.8*np.ones( 3 )
@@ -3248,8 +3317,8 @@ class WFC3WhiteFitDE():
             tv = []
             tvf = []
             psignalf = []
-            ttrendf = []
-            ttrendb = []
+            baselinef = []
+            baselineb = []
             print( '\n\nResidual scatter:' )
             Tmidlit = self.Tmid0[self.dsets[i]]
             for s in range( len( self.scankeys[self.dsets[i]] ) ):
@@ -3290,8 +3359,8 @@ class WFC3WhiteFitDE():
                                               transittype=self.syspars['tr_type'] )
                 #psignalfk = pmodfk.light_curve( self.batpars[idkey] )
                 psignalfk = self.bestfits[self.dsets[i]][k]['psignalf']
-                ttrendfk = self.bestfits[self.dsets[i]][k]['ttrendf']
-                ax1.plot( tvfk, 100*( ttrendfk-1 ), '-', c=mec, zorder=0 )
+                baselinefk = self.bestfits[self.dsets[i]][k]['baselinef']
+                ax1.plot( tvfk, 100*( baselinefk-1 ), '-', c=mec, zorder=0 )
                 psignalf += [ psignalfk ]
                 ax3.errorbar( tvk, (1e6)*resids[ixsik], yerr=(1e6)*uncs[ixsik], \
                               fmt='o', mec=mec, ecolor=mec, mfc=mfc )
@@ -3407,7 +3476,7 @@ class WFC3WhiteFitDE():
             betastr = 'beta_free'
         else:
             betastr = 'beta_fixed'
-        oname = 'white.{0}.mpfit.{1}base.pkl'.format( self.analysis, self.ttrend )
+        oname = 'white.{0}.mpfit.{1}base.pkl'.format( self.analysis, self.baseline )
         opath = os.path.join( self.odir, oname )
         return opath
     
@@ -3423,25 +3492,32 @@ class WFC3WhiteFitDE():
         So you can always unpack these in this order and send them as
         inputs to their appropriate functions. 
         """
-        if self.ttrend=='linear':
+        if ( self.baseline=='linearT' )+( self.baseline=='linearX' ):            
             rfunc = UR.DERampLinBase
-        elif self.ttrend=='quadratic':
+        elif self.baseline=='quadratic':
             rfunc = UR.DERampQuadBase
+        elif self.baseline=='exponential':
+            rfunc = UR.DERampExpBase
         else:
             pdb.set_trace()
         ndat, nvar = np.shape( self.data )
         batp = self.batpars
         pmod = self.pmodels
         psignal = np.zeros( ndat )
-        ttrend = np.zeros( ndat )
+        baseline = np.zeros( ndat )
         ramp = np.zeros( ndat )
         jd = self.data[:,0]
         thrs = self.data[:,1]
         torb = self.data[:,2]
-        flux = self.data[:,3]
-        uncs = self.data[:,4]
+        dwav = self.data[:,3]
+        flux = self.data[:,4]
+        uncs = self.data[:,5]
         #dsets = list( self.wlcs.keys() )
         ndsets = len( self.dsets )
+        if ( self.baseline=='linearT' ):
+            bvar = thrs
+        elif ( self.baseline=='linearX' ):
+            bvar = dwav
         self.UpdateBatpars( pars )
         for i in range( ndsets ):
             dset = self.dsets[i]
@@ -3463,10 +3539,10 @@ class WFC3WhiteFitDE():
                     s = 4 # EcDepth, aRs, b, delT
                 psignal[ixsdk] = pmod[idkey].light_curve( batp[idkey] )
                 # Evaluate the systematics signal:
-                tfit, rfit = rfunc( thrs[ixsdk], torb[ixsdk], parsk[s:] )
-                ttrend[ixsdk] = tfit
+                tfit, rfit = rfunc( bvar[ixsdk], thrs[ixsdk], torb[ixsdk], parsk[s:] )
+                baseline[ixsdk] = tfit
                 ramp[ixsdk] = rfit
-        return { 'psignal':psignal, 'ttrend':ttrend, 'ramp':ramp }
+        return { 'psignal':psignal, 'baseline':baseline, 'ramp':ramp }
 
     
     def UpdateBatpars( self, pars ):
@@ -3923,8 +3999,8 @@ class WFC3WhiteFitGP():
             nf = 500
             jdf = np.linspace( z['jd'].min(), z['jd'].max(), nf )
             tvf = np.linspace( z['tv'].min(), z['tv'].max(), nf )
-            ttrendf = fitvals[k['a0']] + fitvals[k['a1']]*tvf
-            ttrend = fitvals[k['a0']] + fitvals[k['a1']]*z['tv']
+            baselinef = fitvals[k['a0']] + fitvals[k['a1']]*tvf
+            baseline = fitvals[k['a0']] + fitvals[k['a1']]*z['tv']
             if self.orbpars=='free':
                 batpar.a = fitvals[k['aRs']]
                 batpar.inc = np.rad2deg( np.arccos( fitvals[k['b']]/batpar.a ) )
@@ -3944,7 +4020,7 @@ class WFC3WhiteFitGP():
                                            fac=fac )
             psignalf = pmodelf.light_curve( batpar )
             psignal = pmodel.light_curve( batpar )
-            resids = z['flux']/( psignal*ttrend )-1. # model=psignal*ttrend*(1+GP)
+            resids = z['flux']/( psignal*baseline )-1. # model=psignal*baseline*(1+GP)
             
             gp = z['zgp']['gp']
             Alabel = z['zgp']['Alabel_global']
@@ -3968,11 +4044,11 @@ class WFC3WhiteFitGP():
             gp.etrain = z['uncs']*beta
             gp.dtrain = np.reshape( resids, [ resids.size, 1 ] )
             mu, sig = gp.predictive( xnew=gp.xtrain, enew=gp.etrain )
-            #systematics = ttrend#+mu.flatten()#*( mu.flatten() + 1 )
-            bestfits = { 'psignal':psignal, 'ttrend':ttrend, 'mu':mu.flatten(), \
-                         'jdf':jdf, 'psignalf':psignalf, 'ttrendf':ttrendf }
-            zout = { 'psignal':psignal, 'ttrend':ttrend, 'mu':mu.flatten(), \
-                     'jdf':jdf, 'psignalf':psignalf, 'ttrendf':ttrendf }
+            #systematics = baseline#+mu.flatten()#*( mu.flatten() + 1 )
+            bestfits = { 'psignal':psignal, 'baseline':baseline, 'mu':mu.flatten(), \
+                         'jdf':jdf, 'psignalf':psignalf, 'baselinef':baselinef }
+            zout = { 'psignal':psignal, 'baseline':baseline, 'mu':mu.flatten(), \
+                     'jdf':jdf, 'psignalf':psignalf, 'baselinef':baselinef }
             return { 'arrays':zout, 'batpar':batpar, 'pmodel':pmodel }
         return EvalModel
                 
@@ -3980,9 +4056,9 @@ class WFC3WhiteFitGP():
     def GetGPLogLikelihood( self, jd, flux, uncs, tv, parents, zgp, \
                             batpar, pmodel, Tmid0, lineartbase ):
         if lineartbase==True:
-            ttrend = parents['a0'] + parents['a1']*tv#[ixs]
+            baseline = parents['a0'] + parents['a1']*tv#[ixs]
         else:
-            ttrend = parents['a0']
+            baseline = parents['a0']
         if self.syspars['tr_type']=='primary':
             if batpar.limb_dark=='quadratic':
                 batpar.u = np.array( [ parents['gam1'], parents['gam2'] ] )
@@ -3994,8 +4070,8 @@ class WFC3WhiteFitGP():
             psignal = self.EvalPsignalSecondary( jd, parents, batpar, pmodel, Tmid0 )
         else:
             pdb.set_trace()
-        #resids = flux - psignal*ttrend
-        resids = flux/( psignal*ttrend )-1. # model=psignal*ttrend*(1+GP)
+        #resids = flux - psignal*baseline
+        resids = flux/( psignal*baseline )-1. # model=psignal*baseline*(1+GP)
         logiL = []
         for i in zgp['logiLlabels_local']:
             logiL += [ parents[i] ]
@@ -4342,6 +4418,10 @@ class WFC3WhiteFitGP():
     
     
     def RunMLE( self ):
+        if ( self.baselineScanShare==True )+( self.rampScanShare==True ):
+            print( '\nWARNGING: still need to adapt scanShare options to whiteFitDE\n' )
+            pdb.set_trace()
+        
         if self.prelim_fit==True:
             mp = pyhm.MAP( self.mbundle )
             for k in list( self.initvals.keys() ):
@@ -4487,7 +4567,7 @@ class WFC3WhiteFitGP():
                           mec=xcolor, zorder=200 )
             axl.plot( thrs[ixsf], zf['dflux'][ixsf], 'o', \
                           mec=zf['mec'], mfc=zf['mfc'], zorder=100 )
-            axl.plot( zf['thrsf'], 100*( zf['ttrendf']*zf['psignalf']-zf['f0'] ), \
+            axl.plot( zf['thrsf'], 100*( zf['baselinef']*zf['psignalf']-zf['f0'] ), \
                       '-', color=lcolor, zorder=0 )
             dat['thrs'] += [ thrs[ixsf] ]
             dat['dflux'] += [ zf['dflux'][ixsf] ]
@@ -4502,14 +4582,14 @@ class WFC3WhiteFitGP():
                           mec=xcolor, zorder=200 )
             axr.plot( thrs[ixsb], zb['dflux'][ixsb], 'o', \
                           mec=zb['mec'], mfc=zb['mfc'], zorder=100 )
-            axr.plot( zb['thrsf'], 100*( zb['ttrendf']*zb['psignalf']-zb['f0'] ), \
+            axr.plot( zb['thrsf'], 100*( zb['baselinef']*zb['psignalf']-zb['f0'] ), \
                       '-', color=lcolor, zorder=0 )
             for ixs in zb['orbixs']:
                 axr.plot( zb['thrsf'], \
-                          100*( zb['ttrendf']*zb['psignalf']-zb['f0'] ), \
+                          100*( zb['baselinef']*zb['psignalf']-zb['f0'] ), \
                           '-', color=lcolor, zorder=0 )
                 axr.plot( zb['thrsf'], \
-                          100*( zb['ttrendf']*zb['psignalf']-zb['f0'] ), \
+                          100*( zb['baselinef']*zb['psignalf']-zb['f0'] ), \
                           '-', color=lcolor, zorder=0 )
             dat['thrs'] += [ thrs[ixsb] ]
             dat['dflux'] += [ zb['dflux'][ixsb] ]
@@ -4560,9 +4640,9 @@ class WFC3WhiteFitGP():
             #thrsff = 24.*( zf['jdf']-tmid )
             thrsff = zf['thrsf']
             psignalff = zf['psignalf']
-            ttrendff = zf['ttrendf']
+            baselineff = zf['baselinef']
             psignalf = zf['psignal']
-            ttrendf = zf['ttrend']
+            baselinef = zf['baseline']
         else:
             thrsff = []
             psignalff = []
@@ -4576,9 +4656,9 @@ class WFC3WhiteFitGP():
             #thrsfb = 24.*( zb['jdf']-tmid )
             thrsfb = zb['thrsf']
             psignalfb = zb['psignalf']
-            ttrendfb = zb['ttrendf']
+            baselinefb = zb['baselinef']
             psignalb = zb['psignal']
-            ttrendb = zb['ttrend']
+            baselineb = zb['baseline']
         else:
             thrsfb = []
             psignalfb = []
@@ -4634,18 +4714,18 @@ class WFC3WhiteFitGP():
         z['orbixs'] = UR.SplitHSTOrbixs( delt[z['ixs']]*24 )
         z['f0'] = flux[z['ixs']][-1]
         z['dflux'] = 100*( flux-z['f0'] )
-        z['ttrend'] = z['mfit']['arrays']['ttrend']
+        z['baseline'] = z['mfit']['arrays']['baseline']
         z['mu'] = z['mfit']['arrays']['mu'].flatten()
-        z['systematics'] = z['ttrend']*( 1+z['mu'] )
+        z['systematics'] = z['baseline']*( 1+z['mu'] )
         z['psignal'] = z['mfit']['arrays']['psignal']
         z['jdf'] = z['mfit']['arrays']['jdf']
-        z['ttrendf'] = z['mfit']['arrays']['ttrendf']
+        z['baselinef'] = z['mfit']['arrays']['baselinef']
         z['psignalf'] = z['mfit']['arrays']['psignalf']
         z['resids_ppm'] = (1e6)*( flux[z['ixs']]-\
                                   z['psignal']*z['systematics'] )
         z['uncs_ppm'] = (1e6)*uncs[z['ixs']]
         z['dfluxc'] = 100*( flux[z['ixs']]/z['systematics']-1 )
-        z['syst_ppm'] = (1e6)*( flux[z['ixs']]/(z['psignal']*z['ttrend'])-1 )
+        z['syst_ppm'] = (1e6)*( flux[z['ixs']]/(z['psignal']*z['baseline'])-1 )
         if scandir=='f':
             z['mfc'] = np.array( [217,240,211] )/256.
             z['mec'] = np.array( [27,120,55] )/256.
@@ -5442,7 +5522,10 @@ class WFC3WhiteLightCurve():
             self.whitelc[k]['auxvars'] = spec1d['spectra'][k]['auxvars']
             wavmicr = spec1d['spectra'][k]['wavmicr'][d1:d2+1]
             e1d = spec1d['spectra'][k]['ecounts1d'][:,d1:d2+1]
-            e1dSmth = scipy.ndimage.filters.gaussian_filter1d( e1d, smthsig, axis=1 )
+            if smthsig>0:
+                e1dSmth = scipy.ndimage.filters.gaussian_filter1d( e1d, smthsig, axis=1 )
+            else:
+                e1dSmth = e1d
             nframes, ndisp = np.shape( e1d )
             xdisp = np.arange( ndisp )
             if self.wavmicr_range=='all':

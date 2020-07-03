@@ -130,11 +130,11 @@ def DERampNoBase( t, torb, pars ):
     a5 = pars[4]
     rvt = rvFunc( t, a1, a2 )
     r0t = r0Func( torb, rvt, a3, a4, a5 )
-    ttr = np.ones( t.size )
-    return ttr, rvt*r0t
+    bline = np.ones( t.size )
+    return bline, rvt*r0t
 
 
-def DERampLinBase( t, torb, pars ):
+def DERampLinBase( bvar, t, torb, pars ):
     """
     Implementation of the double-exponential ramp model for WFC3 systematics.
     Taken from Eq 1-3 of de Wit et al (2018).
@@ -148,11 +148,11 @@ def DERampLinBase( t, torb, pars ):
     b1 = pars[6]
     rvt = rvFunc( t, a1, a2 )
     r0t = r0Func( torb, rvt, a3, a4, a5 )
-    ttr = b0 + b1*t # linear-time baseline trend
-    return ttr, rvt*r0t
+    bline = b0 + b1*bvar # linear-time baseline trend
+    return bline, rvt*r0t
 
 
-def DERampQuadBase( t, torb, pars ):
+def DERampQuadBase( bvar, t, torb, pars ):
     """
     Implementation of the double-exponential ramp model for WFC3 systematics.
     Taken from Eq 1-3 of de Wit et al (2018).
@@ -167,11 +167,11 @@ def DERampQuadBase( t, torb, pars ):
     b2 = pars[7]
     rvt = rvFunc( t, a1, a2 )
     r0t = r0Func( torb, rvt, a3, a4, a5  )
-    ttr = b0 + b1*t + b2*(t**2.) # quadratic-time baseline trend
-    return ttr, rvt*r0t
+    bline = b0 + b1*bvar + b2*(bvar**2.) # quadratic-time baseline trend
+    return bline, rvt*r0t
 
 
-def DERampExpBase( t, torb, pars ):
+def DERampExpBase( bvar, t, torb, pars ):
     """
     Implementation of the double-exponential ramp model for WFC3 systematics.
     Taken from Eq 1-3 of de Wit et al (2018).
@@ -186,8 +186,8 @@ def DERampExpBase( t, torb, pars ):
     b2 = pars[7]
     rvt = rvFunc( t, a1, a2 )
     r0t = r0Func( torb, rvt, a3, a4, a5  )
-    ttr = b0 + b1*np.exp( -b2*t ) # exponential-time baseline trend
-    return ttr, rvt*r0t
+    bline = b0 + b1*np.exp( -b2*bvar ) # exponential-time baseline trend
+    return bline, rvt*r0t
 
 
 def Zap2D( ecounts2d, nsig_transient=8, nsig_static=10, niter=1 ):

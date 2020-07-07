@@ -5062,7 +5062,8 @@ class WFC3SpecLightCurves():
         self.GetChannels( wavmicr )
         self.lc_flux = { 'raw':{}, 'cm':{}, 'ss':{ 'withDispShifts':{} } }
         self.lc_uncs = { 'raw':{}, 'cm':{}, 'ss':{ 'withDispShifts':{} } }
-        smthfwhms = range( 6 ) # loop over a bunch of smoothings by default
+        #smthfwhms = range( 6 ) # loop over a bunch of smoothings by default
+        smthfwhms = [2,4]
         withDispShifts = [ True, False ]
         for k in ['raw','cm','ss']:
             for w in withDispShifts:

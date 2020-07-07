@@ -5082,6 +5082,7 @@ class WFC3SpecLightCurves():
                         self.lc_flux[k][l1]['Smoothed'][l2] = None
                         self.lc_uncs[k][l1]['Smoothed'][l2] = None
         for s in smthfwhms:
+            print( 'Smoothing fwhm {0} (out of {1})'.format( s, smthfwhms ) )
             for w in withDispShifts:
                 self.MakeBasic( wavmicr, dwavmicr, ecounts1d, smoothing_fwhm=s, \
                                 withDispShifts=w )

@@ -2596,11 +2596,11 @@ class WFC3WhiteFitDE():
             #b0i = np.median( flux )
             b1i = 0
             # These starting values seem to produce reasonable results:
-            a1b = 1e-3
-            a2i = 1
-            a3b = 1e-3
-            a4i = 0.01
-            a5i = 0.001
+            a1b = (10)*1e-3
+            a2i = (10)*1
+            a3b = (10)*1e-3
+            a4i = (10)*0.01
+            a5i = (10)*0.001
             bb = 0.1
             pinit = [ a1b*np.random.randn(), a2i*( 1+bb*np.random.randn() ), \
                       a3b*np.random.randn(), a4i*( 1+bb*np.random.randn() ), \
@@ -5342,7 +5342,7 @@ class WFC3SpecLightCurves():
         A = np.ones( [ndisp,2] )
         coeffs = []
         for i in range( nframes ):
-            print( '... frame {0:.0f} of {1:.0f}'.format( i+1, nframes ) )
+            print( 'CalcSpecVars ... frame {0:.0f} of {1:.0f}'.format( i+1, nframes ) )
             rms_i = np.zeros( nshifts )
             diffs = np.zeros( [ nshifts, ndisp ] )
             vstretches_i = np.zeros( nshifts )

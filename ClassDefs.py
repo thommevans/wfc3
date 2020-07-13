@@ -5063,14 +5063,15 @@ class WFC3SpecLightCurves():
         self.lc_flux = { 'raw':{}, 'cm':{}, 'ss':{ 'withDispShifts':{} } }
         self.lc_uncs = { 'raw':{}, 'cm':{}, 'ss':{ 'withDispShifts':{} } }
         #smthfwhms = range( 6 ) # loop over a bunch of smoothings by default
-        smthfwhms = [0,2,4]
-        withDispShifts = [ True, False ]
+        #withDispShifts = [ True, False ]
+        smthfwhms = [0]
+        withDispShifts = [ False ]
         for k in ['raw','cm','ss']:
             for w in withDispShifts:
                 if w==True:
                     l1 = 'withDispShifts'
-                elif k=='ss':
-                    continue
+                #elif k=='ss':
+                #    continue
                 else:
                     l1 = 'noDispShifts'
                 self.lc_flux[k][l1] = { 'Smoothed':{}, 'unSmoothed':{} }
@@ -5082,13 +5083,17 @@ class WFC3SpecLightCurves():
                     else:
                         self.lc_flux[k][l1]['Smoothed'][l2] = None
                         self.lc_uncs[k][l1]['Smoothed'][l2] = None
+        #for s in smthfwhms:
+        #    print( 'Smoothing fwhm {0} (out of {1})'.format( s, smthfwhms ) )
+        #    for w in withDispShifts:
+        #        self.MakeBasic( wavmicr, dwavmicr, ecounts1d, smoothing_fwhm=s, \
+        #                        withDispShifts=w )
+        #    self.MakeShiftStretch( wavmicr, dwavmicr, ecounts1d, wfitarrs, \
+        #                           smoothing_fwhm=s )
         for s in smthfwhms:
             print( 'Smoothing fwhm {0} (out of {1})'.format( s, smthfwhms ) )
-            for w in withDispShifts:
-                self.MakeBasic( wavmicr, dwavmicr, ecounts1d, smoothing_fwhm=s, \
-                                withDispShifts=w )
-            self.MakeShiftStretch( wavmicr, dwavmicr, ecounts1d, wfitarrs, \
-                                   smoothing_fwhm=s )
+            self.MakeBasic( ecounts1d, smoothing_fwhm=s )
+            self.MakeShiftStretch( wavmicr, ecounts1d, wfitarrs, smoothing_fwhm=s )
         self.UnpackArrays()
         return None
     
@@ -5130,7 +5135,7 @@ class WFC3SpecLightCurves():
         return None
     
     
-    def GetChannels( self, wavmicr ):
+    def GetChannelsOLD( self, wavmicr ):
         wavedges = np.linspace( self.cuton_micron, self.cutoff_micron, self.nchannels+1 )
         self.wavedgesmicr = []
         for i in range( self.nchannels ):
@@ -5149,10 +5154,92 @@ class WFC3SpecLightCurves():
         return None
 
     
-    def MakeBasic( self, wavmicr, dwavmicr, ecounts1d, smoothing_fwhm=0, \
-                   withDispShifts=True ):
+    def GetChannels( self, wavmicr ):
         """
-        Accounts for wavelength shifts
+        Reverting to only summing whole pixel columns.
+        """
+        n = len( wavmicr )
+        xpix = np.arange( n )
+        # Determine the lower pixel:
+        ixL = int( np.ceil( np.argmin( np.abs( self.cuton_micron-wavmicr ) ) ) )
+        # Preliminary estimate for the upper pixel:
+        ixU0 = int( np.ceil( np.argmin( np.abs( self.cutoff_micron-wavmicr ) ) ) )
+        # Number of pixels this would span:
+        n0 = ixU0-ixL+1
+        # Number of pixels per channel this would span:
+        npch0 = float( n0 )/self.nchannels
+        # Since we require an integer number of pixels and we don't want
+        # to overrun cutoff_micron, round down to nearest integer:
+        npch = int( np.floor( npch0 ) )
+        self.npixPerChannel = npch
+        # Lower indices of each channel:
+        chixsL = np.array( ixL + npch*np.arange( self.nchannels ), dtype=int )
+        # Upper indices of each channel:
+        chixsU = np.array( chixsL + npch )
+        self.chixs = []
+        self.wavedgesmicr = []
+        for i in range( self.nchannels ):
+            self.chixs += [ [ chixsL[i], chixsU[i] ] ]
+            self.wavedgesmicr += [ [ wavmicr[chixsL[i]], wavmicr[chixsU[i]] ] ]
+        self.cuton_micron = self.wavedgesmicr[0][0]
+        self.cutoff_micron = self.wavedgesmicr[-1][1]
+        #print( '{0:.3f}-{1:.3f}'.format( self.cuton_micron, self.cutoff_micron ) )
+        #pdb.set_trace()
+        return None
+
+    def MakeBasic( self, ecounts1d, smoothing_fwhm=0 ):
+        """
+        Sums static dispersion columns.
+        TODO = add smoothing_fwhm functionality.
+        """
+        ###################
+        smthsig = smoothing_fwhm/2./np.sqrt( 2.*np.log( 2. ) )
+        withDispShifts = False
+        ###################        
+        flux_raw = {}
+        uncs_raw = {}
+        flux_cm = {}
+        uncs_cm = {}
+        for j in self.scankeys:
+            ixsj = ( self.scandirs==UR.ScanVal( j ) )
+            ndat = ixsj.sum()
+            flux_raw[j] = np.zeros( [ ndat, self.nchannels ] )
+            uncs_raw[j] = np.zeros( [ ndat, self.nchannels ] )
+            for i in range( self.nchannels ):
+                ixl = self.chixs[i][0]
+                ixu = self.chixs[i][1]
+                #flux_raw[j][:,i] = np.sum( ecounts1d[ixsj,ixl:ixu+1], axis=1 )
+                flux_raw[j][:,i] = np.sum( ecounts1d[ixsj,ixl:ixu], axis=1 )
+                uncs_raw[j][:,i] = np.sqrt( flux_raw[j][:,i] )
+            flux_cm[j] = np.zeros( [ ndat, self.nchannels ] )
+            uncs_cm[j] = np.zeros( [ ndat, self.nchannels ] )
+            for i in range( self.nchannels ):
+                flux_cm[j][:,i] = flux_raw[j][:,i]/self.cmode[j]
+                uncs_cm[j][:,i] = uncs_raw[j][:,i]#/self.cmode[j]
+        if withDispShifts==True:
+            l1 = 'withDispShifts'
+        else:
+            l1 = 'noDispShifts'
+        if smthsig==0:
+            l2 = 'unSmoothed'
+        else:
+            l2 = 'Smoothed'
+        self.lc_flux['raw'][l1][l2][smoothing_fwhm] = flux_raw
+        self.lc_uncs['raw'][l1][l2][smoothing_fwhm] = uncs_raw
+        self.lc_flux['cm'][l1][l2][smoothing_fwhm] = flux_cm
+        self.lc_uncs['cm'][l1][l2][smoothing_fwhm] = uncs_cm
+        #self.lc_flux['raw'] = flux_raw
+        #self.lc_uncs['raw'] = uncs_raw
+        #self.lc_flux['cm'] = flux_cm
+        #self.lc_uncs['cm'] = uncs_cm
+        return None
+    
+    
+    def MakeBasicTEST( self, wavmicr, dwavmicr, ecounts1d, smoothing_fwhm=0, \
+                       withDispShifts=True ):
+        """
+        Attempts to account for subtle wavelength shifts and partial pixels
+        by using interpolation. Not convinced it doesn't degrade quality.
         """
         
         smthsig = smoothing_fwhm/2./np.sqrt( 2.*np.log( 2. ) )
@@ -5186,10 +5273,11 @@ class WFC3SpecLightCurves():
                         flux_raw[j][i,k] = np.sum( dx*interpf( wavx ) )
                         uncs_raw[j][i,k] = np.sqrt( flux_raw[j][i,k] )
                     else:
-                        ixL = ixs0[np.argmin( wavmicr-wavL )]
-                        ixU = ixs0[np.argmin( wavmicr-wavU )]
-                        flux_raw[j][i,k] = e1di[ixL:ixU+1]
+                        ixL = ixs0[np.argmin( np.abs( wavmicr-wavL ) )]
+                        ixU = ixs0[np.argmin( np.abs( wavmicr-wavU ) )]
+                        flux_raw[j][i,k] = np.sum( e1di[ixL:ixU+1] )
                         uncs_raw[j][i,k] = np.sqrt( flux_raw[j][i,k] )
+                        print( 'aaaaaa', k, np.shape( e1di[ixL:ixU+1] ) )
             flux_cm[j] = np.zeros( [ ndat, self.nchannels ] )
             uncs_cm[j] = np.zeros( [ ndat, self.nchannels ] )
             for k in range( self.nchannels ):
@@ -5209,40 +5297,89 @@ class WFC3SpecLightCurves():
         self.lc_uncs['cm'][l1][l2][smoothing_fwhm] = uncs_cm
         return None
     
-    
-    def MakeBasicBACKUP( self, ecounts1d ):
+    def MakeShiftStretch( self, wavmicr, ecounts1d, bestfits, smoothing_fwhm=0 ):
         """
-        Only sums static dispersion columns.
+        Sums static dispersion columns.
+        TODO = add smoothing_fwhm functionality.
         """
-        flux_raw = {}
-        uncs_raw = {}
-        flux_cm = {}
-        uncs_cm = {}
+        ###################
+        smthsig = smoothing_fwhm/2./np.sqrt( 2.*np.log( 2. ) )
+        withDispShifts = False
+        ###################        
+        self.ss_dspec = {}
+        self.ss_wavshift_pix = {}
+        self.ss_vstretch = {}
+        self.ss_enoise = {}
+        #print( 'rrrrr1', self.ss_dispbound_ixs )
+        #print( 'rrrrr1b', self.ss_dispbound_wav )
+        if self.ss_dispbound_wav is 'speclc_range':
+            #nwav = int( wavmicr.size )
+            #dwav0 = np.abs( wavmicr-self.wavedgesmicr[0][0] )
+            #dwav1 = np.abs( wavmicr-self.wavedgesmicr[-1][1] )
+            #ix0 = np.arange( nwav )[np.argmin( dwav0 )]
+            #ix1 = np.arange( nwav )[np.argmin( dwav1 )]
+            ix0 = self.chixs[0][0] # first pixel
+            ix1 = self.chixs[-1][1] # last pixel
+            self.ss_dispbound_ixs = [ ix0, ix1 ]
+            self.ss_dispbound_wav = [ wavmicr[ix0], wavmicr[ix1] ]
+        #print( 'rrrrr2', self.ss_dispbound_ixs )
+        #print( 'rrrrr3', self.ss_dispbound_wav )
+        #pdb.set_trace()
+        flux_ss = {}
+        uncs_ss = {}
         for j in self.scankeys:
             ixsj = ( self.scandirs==UR.ScanVal( j ) )
-            ndat = ixsj.sum()
-            flux_raw[j] = np.zeros( [ ndat, self.nchannels ] )
-            uncs_raw[j] = np.zeros( [ ndat, self.nchannels ] )
+            ecounts1dj = ecounts1d[ixsj,:]
+            psignalj = bestfits[j]['psignal']
+            ixs_full = np.arange( psignalj.size )
+            ixs_in = psignalj<1-1e-6
+            ixs_out = ixs_full[np.isin(ixs_full,ixs_in,invert=True)]
+            refspecj = np.median( ecounts1dj[ixs_out,:], axis=0 )
+            self.CalcSpecVars( j, ecounts1dj, refspecj )
+            # Normalise the residuals and uncertainties:
+            nframes, ndisp = np.shape( ecounts1dj )
+            for i in range( nframes ):
+                self.ss_dspec[j][i,:] /= refspecj
+                self.ss_enoise[j][i,:] /= refspecj
+            # Construct the ss lightcurves by adding back in the white psignal:
+            flux_ss[j] = np.zeros( [ nframes, self.nchannels ] )
+            uncs_ss[j] = np.zeros( np.shape( self.ss_dspec[j] ) )
             for i in range( self.nchannels ):
-                ixl = self.chixs[i][0]
-                ixu = self.chixs[i][1]
-                #flux_raw[j][:,i] = np.sum( ecounts1d[ixsj,ixl:ixu+1], axis=1 )
-                flux_raw[j][:,i] = np.sum( ecounts1d[ixsj,ixl:ixu], axis=1 )
-                uncs_raw[j][:,i] = np.sqrt( flux_raw[j][:,i] )
-            flux_cm[j] = np.zeros( [ ndat, self.nchannels ] )
-            uncs_cm[j] = np.zeros( [ ndat, self.nchannels ] )
-            for i in range( self.nchannels ):
-                flux_cm[j][:,i] = flux_raw[j][:,i]/self.cmode[j]
-                uncs_cm[j][:,i] = uncs_raw[j][:,i]#/self.cmode[j]
-        self.lc_flux['raw'] = flux_raw
-        self.lc_uncs['raw'] = uncs_raw
-        self.lc_flux['cm'] = flux_cm
-        self.lc_uncs['cm'] = uncs_cm
+                a = self.chixs[i][0]
+                b = self.chixs[i][1]
+                # Bin the differential fluxes over the current channel:
+                dspeci = np.mean( self.ss_dspec[j][:,a:b+1], axis=1 )
+                # Since the differential fluxes correspond to the raw spectroscopic
+                # fluxes corrected for wavelength-common-mode systematics minus the 
+                # white transit, we simply add back in the white transit signal to
+                # obtain the systematics-corrected spectroscopic lightcurve:
+                flux_ss[j][:,i] = dspeci + psignalj
+                # Computed the binned uncertainties for the wavelength channel:
+                uncs_ss[j][:,i] = np.mean( self.ss_enoise[j][:,a:b+1], axis=1 )
+                uncs_ss[j][:,i] /= np.sqrt( float( b-a+1 ) )
+        if withDispShifts==True:
+            l1 = 'withDispShifts'
+        else:
+            l1 = 'noDispShifts'
+        #l1 = 'withDispShifts' # always for ss
+        if smthsig==0:
+            l2 = 'unSmoothed'
+        else:
+            l2 = 'Smoothed'            
+        self.lc_flux['ss'][l1][l2][smoothing_fwhm] = flux_ss
+        self.lc_uncs['ss'][l1][l2][smoothing_fwhm] = uncs_ss
+        #self.lc_flux['ss'][j] = flux_ss
+        #self.lc_uncs['ss'][j] = uncs_ss
         return None
+
     
     
-    def MakeShiftStretch( self, wavmicr, dwavmicr, ecounts1d, bestfits, \
-                          smoothing_fwhm=0 ):
+    def MakeShiftStretchTEST( self, wavmicr, dwavmicr, ecounts1d, bestfits, \
+                              smoothing_fwhm=0 ):
+        """
+        Attempts to account for subtle wavelength shifts and partial pixels
+        by using interpolation. Not convinced it doesn't degrade quality.
+        """
         smthsig = smoothing_fwhm/2./np.sqrt( 2.*np.log( 2. ) )
         self.ss_dspec = {}
         self.ss_wavshift_pix = {}
@@ -5322,6 +5459,46 @@ class WFC3SpecLightCurves():
 
         return None
 
+
+    def MakeShiftStretchORIGINAL( self, wavmicr, ecounts1d, bestfits ):
+        self.ss_dspec = {}
+        self.ss_wavshift_pix = {}
+        self.ss_vstretch = {}
+        self.ss_enoise = {}
+        for j in self.scankeys:
+            ixsj = ( self.scandirs==UR.ScanVal( j ) )
+            ecounts1dj = ecounts1d[ixsj,:]
+            psignalj = bestfits[j]['psignal']
+            ixs_full = np.arange( psignalj.size )
+            ixs_in = psignalj<1-1e-6
+            ixs_out = ixs_full[np.isin(ixs_full,ixs_in,invert=True)]
+            refspecj = np.median( ecounts1dj[ixs_out,:], axis=0 )
+            self.CalcSpecVars( j, ecounts1dj, refspecj )
+            # Normalise the residuals and uncertainties:
+            nframes, ndisp = np.shape( ecounts1dj )
+            for i in range( nframes ):
+                self.ss_dspec[j][i,:] /= refspecj
+                self.ss_enoise[j][i,:] /= refspecj
+            # Construct the ss lightcurves by adding back in the white psignal:
+            flux_ss = np.zeros( [ nframes, self.nchannels ] )
+            uncs_ss = np.zeros( np.shape( self.ss_dspec[j] ) )
+            for i in range( self.nchannels ):
+                a = self.chixs[i][0]
+                b = self.chixs[i][1]
+                # Bin the differential fluxes over the current channel:
+                dspeci = np.mean( self.ss_dspec[j][:,a:b+1], axis=1 )
+                # Since the differential fluxes correspond to the raw spectroscopic
+                # fluxes corrected for wavelength-common-mode systematics minus the 
+                # white transit, we simply add back in the white transit signal to
+                # obtain the systematics-corrected spectroscopic lightcurve:
+                flux_ss[:,i] = dspeci + psignalj
+                # Computed the binned uncertainties for the wavelength channel:
+                uncs_ss[:,i] = np.mean( self.ss_enoise[j][:,a:b+1], axis=1 )
+                uncs_ss[:,i] /= np.sqrt( float( b-a+1 ) )
+            self.lc_flux['ss'][j] = flux_ss
+            self.lc_uncs['ss'][j] = uncs_ss
+        return None
+    
     
     def CalcSpecVars( self, scan, ecounts1d, refspec ):
         nframes, ndisp = np.shape( ecounts1d )

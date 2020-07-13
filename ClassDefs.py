@@ -5312,6 +5312,7 @@ class WFC3SpecLightCurves():
         self.ss_enoise = {}
         #print( 'rrrrr1', self.ss_dispbound_ixs )
         #print( 'rrrrr1b', self.ss_dispbound_wav )
+        nwav = int( wavmicr.size )
         if self.ss_dispbound_wav is 'speclc_range':
             #nwav = int( wavmicr.size )
             #dwav0 = np.abs( wavmicr-self.wavedgesmicr[0][0] )

@@ -5320,8 +5320,14 @@ class WFC3SpecLightCurves():
             #ix1 = np.arange( nwav )[np.argmin( dwav1 )]
             ix0 = self.chixs[0][0] # first pixel
             ix1 = self.chixs[-1][1] # last pixel
-            self.ss_dispbound_ixs = [ ix0, ix1 ]
-            self.ss_dispbound_wav = [ wavmicr[ix0], wavmicr[ix1] ]
+        else:
+            dwav0 = np.abs( wavmicr-self.ss_dispbound_wav[0] )
+            dwav1 = np.abs( wavmicr-self.ss_dispbound_wav[1] )
+            ix0 = np.arange( nwav )[np.argmin( dwav0 )]
+            ix1 = np.arange( nwav )[np.argmin( dwav1 )]
+        self.ss_dispbound_ixs = [ ix0, ix1 ]
+        self.ss_dispbound_wav = [ wavmicr[ix0], wavmicr[ix1] ]
+            
         #print( 'rrrrr2', self.ss_dispbound_ixs )
         #print( 'rrrrr3', self.ss_dispbound_wav )
         #pdb.set_trace()

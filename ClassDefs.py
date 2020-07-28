@@ -1119,7 +1119,7 @@ class WFC3SpecFitAnalytic():
             # Run a quick double-exponential ramp fit on the first
             # and last HST orbits to get reasonable starting values
             # for the parameters:
-            rpars0, fluxcik = self.PrelimDEFit( bvardk, thrsdk, torbdk, fluxdk )
+            rpars0, fluxcik = self.PrelimDEFit( dset, bvardk, thrsdk, torbdk, fluxdk )
             rinit = np.concatenate( [ rinit, rpars0 ] )
             nrpar = len( rpars0 )
             rixs[idkey] = np.arange( c*nrpar, (c+1)*nrpar )
@@ -1150,7 +1150,7 @@ class WFC3SpecFitAnalytic():
             ixsk = ixsd[dataset][k] # data ixs for current dataset + scan direction
             # Run a quick double-exponential ramp fit on the first and last HST
             # orbits to get reasonable starting values for the parameters:
-            rpars0k, fluxck = self.PrelimDEFit( bvar[ixsk], thrs[ixsk], \
+            rpars0k, fluxck = self.PrelimDEFit( dataset, bvar[ixsk], thrs[ixsk], \
                                                 torb[ixsk], flux[ixsk] )
             # Note that the above ramp fit will perform fit with self.baseline, 
             # then return only the ramp parameters, but fluxc will be the flux
@@ -1208,7 +1208,7 @@ class WFC3SpecFitAnalytic():
                 # Run a quick double-exponential ramp fit on the first
                 # and last HST orbits to get reasonable starting values
                 # for the parameters:
-                rpars0, fluxcik = self.PrelimDEFit( thrs[ixsdk], torb[ixsdk], \
+                rpars0, fluxcik = self.PrelimDEFit( dset, thrs[ixsdk], torb[ixsdk], \
                                                     flux[ixsdk] )
                 rinit = np.concatenate( [ rinit, rpars0 ] )
                 nrpar = len( rpars0 )
@@ -1226,11 +1226,13 @@ class WFC3SpecFitAnalytic():
         #pdb.set_trace()
         return r, fluxc
 
-    def PrelimDEFit( self, bvar, thrs, torb, flux ):
+    def PrelimDEFit( self, dset, bvar, thrs, torb, flux ):
         """
         Performs preliminary fit for the ramp systematics, only
         fitting to the first and last HST orbits.
         """
+        print( '\nRunning preliminary DE ramp fit for {0}'.format( dset ) )
+        print( '(using only the first and last orbits)' )
         if ( self.baseline=='linearT' )+( self.baseline=='linearX' ):
             rfunc = UR.DERampLinBase
             nbase = 2
@@ -1253,7 +1255,7 @@ class WFC3SpecFitAnalytic():
         rms = np.zeros( ntrials )
         pfit = []
         for i in range( ntrials ):
-            print( i )
+            print( '... trial {0:.0f} of {1:.0f}'.format( i+1, ntrials ) )
             b0i = flux[-1]
             #b0i = np.median( flux )
             b1i = 0
@@ -1272,7 +1274,8 @@ class WFC3SpecFitAnalytic():
             #          (1.+0.005*np.random.random() )/60., flux[-1], 0 ]
             if nbase==3:
                 pinit += [ 0 ]
-            pfiti = scipy.optimize.fmin( CalcRMS, pinit, maxiter=1e4, xtol=1e-3, ftol=1e-4 )
+            pfiti = scipy.optimize.fmin( CalcRMS, pinit, maxiter=1e4, xtol=1e-3, \
+                                         ftol=1e-4, disp=False )
             rms[i] = CalcRMS( pfiti )
             pfit += [ pfiti ]
         pbest = pfit[np.argmin(rms)]            
@@ -2545,7 +2548,7 @@ class WFC3WhiteFitDE():
                 # Run a quick double-exponential ramp fit on the first
                 # and last HST orbits to get reasonable starting values
                 # for the parameters:
-                rpars0, fluxcik = self.PrelimDEFit( bvar[ixsdk], thrs[ixsdk], \
+                rpars0, fluxcik = self.PrelimDEFit( dset, bvar[ixsdk], thrs[ixsdk], \
                                                     torb[ixsdk], flux[ixsdk] )
                 rinit = np.concatenate( [ rinit, rpars0 ] )
                 nrpar = len( rpars0 )
@@ -2564,15 +2567,17 @@ class WFC3WhiteFitDE():
         return r, fluxc
 
     
-    def PrelimDEFit( self, bvar, thrs, torb, flux ):
+    def PrelimDEFit( self, dset, bvar, thrs, torb, flux ):
         """
         Performs preliminary fit for the ramp systematics, only
         fitting to the first and last HST orbits.
         """
+        print( '\nRunning preliminary DE ramp fit for {0}'.format( dset ) )
+        print( '(using only the first and last orbits)' )
         if ( self.baseline=='linearT' )+( self.baseline=='linearX' ):            
             rfunc = UR.DERampLinBase
             nbase = 2
-        elif self.baseline=='quadratic':
+        elif ( self.baseline=='quadraticT' )+( self.baseline=='quadraticX' ):
             rfunc = UR.DERampQuadBase
             nbase = 3
         elif self.baseline=='exponential':
@@ -2583,33 +2588,49 @@ class WFC3WhiteFitDE():
         orbixs = UR.SplitHSTOrbixs( thrs )
         ixs = np.concatenate( [ orbixs[0], orbixs[-1] ] )
         def CalcRMS( pars ):
-            baseline, ramp = rfunc( bvar[ixs], thrs[ixs], torb[ixs], pars )
-            resids = flux[ixs]-baseline*ramp
-            rms = np.sqrt( np.mean( resids**2. ) )
+            if ( pars[-nbase]>flux.max() )+( pars[-nbase]<flux.min() ):
+                rms = np.inf
+            else:
+                baseline, ramp = rfunc( bvar[ixs], thrs[ixs], torb[ixs], pars )
+                resids = flux[ixs]-baseline*ramp
+                rms = np.sqrt( np.mean( resids**2. ) )
+            if 0:
+                plt.ion()
+                plt.figure()
+                plt.plot( thrs, flux, 'ok' )
+                plt.plot( thrs[ixs], baseline, '-c' )
+                plt.plot( thrs[ixs], baseline*ramp, 'dr' )
+                pdb.set_trace()
             return rms
         ntrials = 30
         rms = np.zeros( ntrials )
         pfit = []
         for i in range( ntrials ):
-            print( i )
-            b0i = flux[-1]
+            print( '... trial {0:.0f} of {1:.0f}'.format( i+1, ntrials ) )
+            b0i = 0.5*( flux[0]+flux[-1] )
             #b0i = np.median( flux )
-            b1i = 0
+            b1i = ( flux[-1]-flux[0] )/( bvar[-1]-bvar[0] )
             # These starting values seem to produce reasonable results:
-            a1b = (10)*1e-3
+            a1b = 1e-3#(10)*1e-3
             a2i = (10)*1
-            a3b = (10)*1e-3
-            a4i = (10)*0.01
+            a3b = 1e-3#-1e-2#(10)*1e-3
+            a4i = 0.1#(10)*0.01
             a5i = (10)*0.001
             bb = 0.1
             pinit = [ a1b*np.random.randn(), a2i*( 1+bb*np.random.randn() ), \
                       a3b*np.random.randn(), a4i*( 1+bb*np.random.randn() ), \
                       a5i*( 1+bb*np.random.randn() ), b0i, b1i ]
+            #pinit = [ 0, a2i, \
+            #          -0.0001, 500, \
+            #          1e-6, b0i, b1i ]
             #pinit = [ (1e-3)*np.random.randn(), 0.1+0.005*np.random.random(), \
             #          (1e-3)*np.random.randn(), 0.1+0.005*np.random.random(), \
             #          (1.+0.005*np.random.random() )/60., flux[-1], 0 ]
             if self.baseline=='quadratic': pinit += [ 0 ]
-            pfiti = scipy.optimize.fmin( CalcRMS, pinit, maxiter=1e4, xtol=1e-3, ftol=1e-4 )
+            #print( pinit )
+            #pdb.set_trace()
+            pfiti = scipy.optimize.fmin( CalcRMS, pinit, maxiter=1e4, \
+                                         xtol=1e-3, ftol=1e-4, disp=False )
             rms[i] = CalcRMS( pfiti )
             pfit += [ pfiti ]
         pbest = pfit[np.argmin(rms)]            
@@ -2618,6 +2639,17 @@ class WFC3WhiteFitDE():
         tfit, rfit = rfunc( bvar, thrs, torb, pbest )
         #fluxc = flux/( tfit*rfit )
         fluxc = flux/rfit
+        if 1:
+            plt.ion()
+            plt.figure()
+            plt.plot( thrs, flux, 'ok' )
+            plt.plot( thrs, tfit, '-c' )
+            plt.plot( thrs, tfit*rfit, '-r' )
+            plt.title( dset )
+            plt.figure()
+            plt.plot( thrs, fluxc, 'og' )
+            plt.title( dset )
+            pdb.set_trace()
         return rpars, fluxc
 
 
@@ -3422,9 +3454,9 @@ class WFC3WhiteFitDE():
 
     def GetODir( self ):
         dirbase = os.path.join( self.results_dir, 'white' )
-        if self.orbpars=='free':
+        if self.orbpars.lower()=='free':
             dirbase = os.path.join( dirbase, 'orbpars_free' )
-        elif self.orbpars=='fixed':
+        elif self.orbpars.lower()=='fixed':
             dirbase = os.path.join( dirbase, 'orbpars_fixed' )
         else:
             print( '\n\n\norbpars must be "free" or "fixed"\n\n\n' )
@@ -3494,7 +3526,7 @@ class WFC3WhiteFitDE():
         """
         if ( self.baseline=='linearT' )+( self.baseline=='linearX' ):            
             rfunc = UR.DERampLinBase
-        elif self.baseline=='quadratic':
+        elif ( self.baseline=='quadraticT' )+( self.baseline=='quadraticX' ):
             rfunc = UR.DERampQuadBase
         elif self.baseline=='exponential':
             rfunc = UR.DERampExpBase
@@ -3514,9 +3546,9 @@ class WFC3WhiteFitDE():
         uncs = self.data[:,5]
         #dsets = list( self.wlcs.keys() )
         ndsets = len( self.dsets )
-        if ( self.baseline=='linearT' ):
+        if ( self.baseline=='linearT' )+( self.baseline=='quadraticT' ):
             bvar = thrs
-        elif ( self.baseline=='linearX' ):
+        elif ( self.baseline=='linearX' )+( self.baseline=='quadraticX' ):
             bvar = dwav
         self.UpdateBatpars( pars )
         for i in range( ndsets ):
@@ -5066,6 +5098,40 @@ class WFC3SpecLightCurves():
         #withDispShifts = [ True, False ]
         smthfwhms = [0]
         withDispShifts = [ False ]
+        self.setupSpecLCArrs( smthfwhms, withDispShifts )
+        if 0: # should be able to delete this chunk now...
+            for k in ['raw','cm','ss']:
+                for w in withDispShifts:
+                    if w==True:
+                        l1 = 'withDispShifts'
+                    #elif k=='ss':
+                    #    continue
+                    else:
+                        l1 = 'noDispShifts'
+                    self.lc_flux[k][l1] = { 'Smoothed':{}, 'unSmoothed':{} }
+                    self.lc_uncs[k][l1] = { 'Smoothed':{}, 'unSmoothed':{} }
+                    for l2 in smthfwhms:
+                        if l2==0:
+                            self.lc_flux[k][l1]['unSmoothed'][l2] = None
+                            self.lc_uncs[k][l1]['unSmoothed'][l2] = None
+                        else:
+                            self.lc_flux[k][l1]['Smoothed'][l2] = None
+                            self.lc_uncs[k][l1]['Smoothed'][l2] = None
+        #for s in smthfwhms:
+        #    print( 'Smoothing fwhm {0} (out of {1})'.format( s, smthfwhms ) )
+        #    for w in withDispShifts:
+        #        self.MakeBasic( wavmicr, dwavmicr, ecounts1d, smoothing_fwhm=s, \
+        #                        withDispShifts=w )
+        #    self.MakeShiftStretch( wavmicr, dwavmicr, ecounts1d, wfitarrs, \
+        #                           smoothing_fwhm=s )
+        for s in smthfwhms:
+            print( 'Smoothing fwhm {0} (out of {1})'.format( s, smthfwhms ) )
+            self.MakeBasic( ecounts1d, smoothing_fwhm=s )
+            self.MakeShiftStretch( wavmicr, ecounts1d, wfitarrs, smoothing_fwhm=s )
+        self.UnpackArrays()
+        return None
+
+    def setupSpecLCArrs( self, smthfwhms, withDispShifts ):
         for k in ['raw','cm','ss']:
             for w in withDispShifts:
                 if w==True:
@@ -5083,20 +5149,6 @@ class WFC3SpecLightCurves():
                     else:
                         self.lc_flux[k][l1]['Smoothed'][l2] = None
                         self.lc_uncs[k][l1]['Smoothed'][l2] = None
-        #for s in smthfwhms:
-        #    print( 'Smoothing fwhm {0} (out of {1})'.format( s, smthfwhms ) )
-        #    for w in withDispShifts:
-        #        self.MakeBasic( wavmicr, dwavmicr, ecounts1d, smoothing_fwhm=s, \
-        #                        withDispShifts=w )
-        #    self.MakeShiftStretch( wavmicr, dwavmicr, ecounts1d, wfitarrs, \
-        #                           smoothing_fwhm=s )
-        for s in smthfwhms:
-            print( 'Smoothing fwhm {0} (out of {1})'.format( s, smthfwhms ) )
-            self.MakeBasic( ecounts1d, smoothing_fwhm=s )
-            self.MakeShiftStretch( wavmicr, ecounts1d, wfitarrs, smoothing_fwhm=s )
-        self.UnpackArrays()
-        return None
-    
     
     def UnpackArrays( self ):
         """

@@ -2662,7 +2662,7 @@ class WFC3WhiteFitDE():
         tfit, rfit = rfunc( bvar, thrs, torb, pbest )
         #fluxc = flux/( tfit*rfit )
         fluxc = flux/rfit
-        if 1:
+        if 0:
             plt.ion()
             plt.figure()
             plt.plot( thrs, flux, 'ok' )
@@ -5688,10 +5688,10 @@ class WFC3SpecLightCurves():
         return None
 
     def Plot( self, spec1d ):
+        plt.ioff()
         wavmicr = spec1d['spectra'][self.analysis]['wavmicr']
         f = spec1d['spectra'][self.analysis]['ecounts1d'][-1,:]
         f /= f.max()
-        plt.ioff()
         #nchan = len( self.chixs )
         nchan = len( self.wavedgesmicr )
         c = 'Blue'

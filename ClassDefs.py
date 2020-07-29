@@ -973,6 +973,8 @@ class WFC3SpecFitAnalytic():
             s = b
         else:
             pdb.set_trace() # TODO other options, e.g. phi-polynomial.
+        #print( self.ramp_model, b )
+        #pdb.set_trace()
         # Combine into global parameter list:
         nppar_total = len( p['pars_init'] ) # number of planet signal parameters
         self.pars_init = np.concatenate( [ p['pars_init'], s['pars_init'] ] )
@@ -1035,7 +1037,7 @@ class WFC3SpecFitAnalytic():
         """
         plabels, pinit, pfixed = self.InitialPPars( transittype )
         # THIS SYSTEMATICS LINE COULD BE GENERALIZED TO HANDLE D.E. AS WELL...
-        blabels0, binit0, bfixed0 = self.InitialBPars()        
+        blabels0, binit0, bfixed0 = self.InitialBPars()
         ng = len( pinit )
         pixsg = np.arange( ng ) # global (across visits) planet parameters
         pixs = {}
@@ -1049,6 +1051,10 @@ class WFC3SpecFitAnalytic():
             pixs[self.dsets[k]] = pixsg # planet parameter ixs for current dset
             bparsk = self.PrelimBPars( self.dsets[k] )
             blabels += [ bparsk['blabels'] ]
+            print( '\n\n{0}\n'.format( k ) )
+            for i in range( len( bparsk['blabels'] ) ):
+                print( bparsk['blabels'][i], bparsk['bpars_init'][i] )
+                
             bfixed = np.concatenate( [ bfixed, bparsk['bfixed'] ] )
             binit = np.concatenate( [ binit, bparsk['bpars_init'] ] )
             for i in list( bparsk['bixs'].keys() ):
@@ -1425,6 +1431,7 @@ class WFC3SpecFitAnalytic():
         bixs[idkey][0] = nbpar # replace offset for backward scan
         b = { 'blabels':blabels, 'bfixed':bfixed, 'bpars_init':binit, 'bixs':bixs }
         # THIS ROUTINE ABOVE DOES THE SHARING CORRECTLY...
+        #print( self.baseline, offsf, offsb )
         #pdb.set_trace()
         return b
 
@@ -1636,7 +1643,12 @@ class WFC3SpecFitAnalytic():
         self.UpdateBatpars( pars )
         for i in range( ndsets ):
             dset = self.dsets[i]
+            if 0: # DELETE
+                plt.ion() # DELETE
+                plt.figure() # DELETE
+                plt.title( dset ) # DELETE
             for k in self.scankeys[dset]:
+                #print( 'aaaaaaaq', k )
                 idkey = '{0}{1}'.format( dset, k )
                 ixsdk = self.data_ixs[dset][k]
                 parsk = pars[self.par_ixs[idkey]]
@@ -1649,12 +1661,18 @@ class WFC3SpecFitAnalytic():
                         m = 4
                     else:
                         pdb.set_trace()
-                    s = 1+m # RpRs, ld
+                    s = 1+m # 1+m = RpRs + N(ld)
                 else:
-                    s = 1 # EcDepth
+                    s = 1 # 1 = EcDepth
                 psignal[ixsdk] = pmod[idkey].light_curve( batp[idkey] )
                 # Evaluate the systematics signal:
                 baseline[ixsdk] = bfunc( bvar[ixsdk], parsk[s:] )
+                if 0: # DELETE
+                    print( dset, k, parsk[s] )
+                    plt.plot( jd[ixsdk], flux[ixsdk], 'o', label=k )
+                    plt.plot( jd[ixsdk], baseline[ixsdk], '-' )
+            #plt.legend() # DELETE
+        #pdb.set_trace() # DELETE
         return { 'psignal':psignal, 'baseline':baseline }
 
     def CalcModelRampDE( self, pars ):
@@ -2001,6 +2019,11 @@ class WFC3SpecFitAnalytic():
             resids = data[:,4]-fullmodel
             status = 0
             rms = np.sqrt( np.mean( resids**2. ) )
+            #plt.ion()
+            #plt.figure()
+            #plt.plot( data[:,0], data[:,4], 'ok' )
+            #plt.plot( data[:,0], fullmodel, '-r' )
+            #pdb.set_trace()
             return [ status, resids/data[:,5] ]
         self.npar = len( self.par_labels )
         parinfo = []

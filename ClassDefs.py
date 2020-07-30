@@ -915,6 +915,10 @@ class WFC3SpecFitAnalytic():
                 dwavi = slcs['auxvars'][analysis]['wavshift_pix'][scanixs[k]]
                 fluxi = slcs['lc_flux'][lctype][w][l][s][scanixs[k],self.chix]
                 uncsi = slcs['lc_uncs'][lctype][w][l][s][scanixs[k],self.chix]
+                #plt.ion() # DELETE
+                #plt.figure()
+                #plt.errorbar( jdi, fluxi, yerr=uncsi, fmt='o' )
+                #plt.title( '{0}{1}'.format( dset, k ) )
                 data += [ np.column_stack( [ jdi, thrsi, torbi, dwavi, fluxi, uncsi ] ) ]
                 i2 = i1+len( fluxi )
                 ixs[dset][k] = np.arange( i1, i2 )
@@ -930,6 +934,7 @@ class WFC3SpecFitAnalytic():
             keepixsd = np.concatenate( self.keepixs[dset] )
             ixsk = np.argsort( keepixsd )
             self.keepixs[dset] = keepixsd[ixsk]
+        #pdb.set_trace()
         # Package data together in single array for mpfit:
         self.data = np.vstack( data ) 
         self.data_ixs = ixs
@@ -5119,7 +5124,7 @@ class WFC3SpecLightCurves():
         self.lc_uncs = { 'raw':{}, 'cm':{}, 'ss':{ 'withDispShifts':{} } }
         #smthfwhms = range( 6 ) # loop over a bunch of smoothings by default
         #withDispShifts = [ True, False ]
-        smthfwhms = [0]
+        smthfwhms = [0,2,4]
         withDispShifts = [ False ]
         self.setupSpecLCArrs( smthfwhms, withDispShifts )
         if 0: # should be able to delete this chunk now...

@@ -2125,7 +2125,7 @@ class WFC3WhiteFitDE():
         big data array.
         """
         if ( self.baselineScanShare==True )+( self.rampScanShare==True ):
-            print( '\nWARNGING: still need to adapt scanShare options to whiteFitDE\n' )
+            print( '\nWARNING: still need to adapt scanShare options to whiteFitDE\n' )
             pdb.set_trace()
         self.dsets = list( self.wlcs.keys() )
         ndsets = len( self.dsets )
@@ -4478,9 +4478,9 @@ class WFC3WhiteFitGP():
     
     
     def RunMLE( self ):
-        if ( self.baselineScanShare==True )+( self.rampScanShare==True ):
-            print( '\nWARNGING: still need to adapt scanShare options to whiteFitDE\n' )
-            pdb.set_trace()
+        #if ( self.baselineScanShare==True )+( self.rampScanShare==True ):
+        #    print( '\nWARNING: still need to adapt scanShare options to whiteFitDE\n' )
+        #    pdb.set_trace()
         
         if self.prelim_fit==True:
             mp = pyhm.MAP( self.mbundle )

@@ -679,7 +679,7 @@ class WFC3SpecFitGP():
         #pdb.set_trace()
         outp['batpars'] = self.batpars
         outp['pmodels'] = self.pmodels
-        outp['bestfits'] = bestfits
+        outp['bestFits'] = bestfits
         outp['mle'] = self.mle
         outp['freepars'] = self.freepars
         outp['orbpars'] = self.orbpars
@@ -1982,11 +1982,11 @@ class WFC3SpecFitAnalytic():
         outp['data_ixs'] = self.data_ixs
         outp['data'] = self.data
         #outp['cullixs_init'] = self.cullixs
-        outp['keepixs_final'] = self.keepixs
+        outp['keepixsFinal'] = self.keepixs
         outp['par_ixs'] = self.par_ixs
         outp['model_fit'] = self.model_fit
         self.BestFitsOut()
-        outp['bestfits'] = self.bestfits
+        outp['bestFits'] = self.bestfits
         outp['uncertainties_rescale'] = self.uncertainties_rescale
         outp['par_labels'] = self.par_labels
         outp['pars_fit'] = self.pars_fit
@@ -3214,12 +3214,12 @@ class WFC3WhiteFitDE():
         outp['data_ixs'] = self.data_ixs
         outp['data'] = self.data
         outp['cullixs_init'] = self.cullixs
-        outp['keepixs_final'] = self.keepixs
+        outp['keepixsFinal'] = self.keepixs
         outp['par_ixs'] = self.par_ixs
         outp['model_fit'] = self.model_fit
         outp['systematics'] = 'DE'
         self.BestFitsOut()
-        outp['bestfits'] = self.bestfits
+        outp['bestFits'] = self.bestfits
         outp['uncertainties_rescale'] = self.uncertainties_rescale
         outp['par_labels'] = self.par_labels
         outp['pars_fit'] = self.pars_fit
@@ -3273,7 +3273,7 @@ class WFC3WhiteFitDE():
         outp['data_ixs'] = self.data_ixs
         outp['data'] = self.data
         outp['cullixs_init'] = self.cullixs
-        outp['keepixs_final'] = self.keepixs
+        outp['keepixsFinal'] = self.keepixs
         outp['par_ixs'] = self.par_ixs
         npar = len( self.par_labels )
         outp['mle_arr'] = np.zeros( npar )
@@ -3284,7 +3284,7 @@ class WFC3WhiteFitDE():
         outp['model_fit'] = self.CalcModel( outp['mle_arr'] )
         outp['systematics'] = 'DE'
         self.BestFitsOut()
-        outp['bestfits'] = self.bestfits
+        outp['bestFits'] = self.bestfits
         #outp['uncertainties_rescale'] = self.uncertainties_rescale
         outp['par_labels'] = self.par_labels
         #outp['pars_fit'] = self.pars_fit
@@ -3951,7 +3951,7 @@ class WFC3WhiteFitGP():
         """
         self.Tmid0 = {}
         self.evalmodels = {}
-        self.keepixs_final = {} # todo = change to keepixs_final so consistent w/speclcs
+        self.keepixsFinal = {} # todo = change to keepixsFinal so consistent w/speclcs
         #dsets = list( self.wlcs.keys() )
         nvisits = len( self.dsets )
         for j in range( nvisits ):
@@ -3998,14 +3998,14 @@ class WFC3WhiteFitGP():
         scanixs = {}
         scanixs['f'] = ixsc[wlc['scandirs'][ixsc]==1]
         scanixs['b'] = ixsc[wlc['scandirs'][ixsc]==-1]
-        keepixs_final = []
+        keepixsFinal = []
         self.evalmodels[dset] = {}        
         for k in self.scankeys[dset]:
             self.GetModelComponents( dset, parents, scanixs, k, Tmid )
-            keepixs_final += [ self.evalmodels[dset][k][1] ]
-        keepixs_final = np.concatenate( keepixs_final )
-        ixs = np.argsort( keepixs_final )
-        self.keepixs_final[dset] = keepixs_final[ixs]
+            keepixsFinal += [ self.evalmodels[dset][k][1] ]
+        keepixsFinal = np.concatenate( keepixsFinal )
+        ixs = np.argsort( keepixsFinal )
+        self.keepixsFinal[dset] = keepixsFinal[ixs]
         return None
     
         
@@ -4840,10 +4840,10 @@ class WFC3WhiteFitGP():
         self.whitefit_mcmc_fpath_pkl = mcmc_fpath
         self.whitefit_mle_fpath_pkl = mle_fpath
         self.cullixs = z['cullixs_init']
-        self.keepixs_final = z['keepixs_final']
+        self.keepixsFinal = z['keepixsFinal']
         self.batpars = z['batpars']
         self.pmodels = z['pmodels']
-        self.bestfits = z['bestfits']
+        self.bestfits = z['bestFits']
         self.mle = z['mle']
         self.freepars = z['freepars']
         self.Tmid0 = z['Tmid0']
@@ -4870,11 +4870,11 @@ class WFC3WhiteFitGP():
         outp['wlcs'] = self.wlcs
         outp['analysis'] = self.analysis
         outp['cullixs_init'] = self.cullixs
-        outp['keepixs_final'] = self.keepixs_final
+        outp['keepixsFinal'] = self.keepixsFinal
         outp['batpars'] = self.batpars
         outp['pmodels'] = self.pmodels
         outp['syspars'] = self.syspars
-        outp['bestfits'] = bestfits
+        outp['bestFits'] = bestfits
         outp['systematics'] = 'GP'
         outp['orbpars'] = { 'fittype':self.orbpars }
         if ( self.orbpars=='fixed' ):#+( self.orbpars=='wmeanfixed' ):
@@ -5102,8 +5102,8 @@ class WFC3SpecLightCurves():
     
     def PrepSpecLCs( self, spec1d, whitefit ):
         # Get ixs to be used for each scan direction:
-        self.scankeys = list( whitefit['bestfits'][self.dsetname].keys() )
-        ixsc = whitefit['keepixs_final'][self.dsetname]
+        self.scankeys = list( whitefit['bestFits'][self.dsetname].keys() )
+        ixsc = whitefit['keepixsFinal'][self.dsetname]
         self.jd = spec1d['jd'][ixsc]
         self.scandirs = spec1d['scandirs'][ixsc]
         # Copy auxvars, cull, split into f and b to start:
@@ -5113,7 +5113,7 @@ class WFC3SpecLightCurves():
             self.auxvars[k] = {}
             for i in list( auxvarsk.keys() ):
                 self.auxvars[k][i] = auxvarsk[i][ixsc]
-        wfitarrs = whitefit['bestfits'][self.dsetname]
+        wfitarrs = whitefit['bestFits'][self.dsetname]
         wflux = whitefit['wlcs'][self.dsetname]['whitelc'][self.analysis]['flux']
         self.MakeCommonMode( wfitarrs, wflux[ixsc] )
         wavmicr = spec1d['spectra'][self.analysis]['wavmicr']

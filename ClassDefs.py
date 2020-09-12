@@ -5097,6 +5097,10 @@ class WFC3SpecLightCurves():
             ixsj = ( self.scandirs==UR.ScanVal( j ) )
             psignalj = bestfits[j]['psignal']
             self.cmode[j] = flux[ixsj]/psignalj
+            if 0:
+                plt.figure()
+                plt.plot( self.jd, psignalj )
+                pdb.set_trace()
         return None
     
     
@@ -5296,6 +5300,14 @@ class WFC3SpecLightCurves():
             for i in range( self.nchannels ):
                 flux_cm[j][:,i] = flux_raw[j][:,i]/self.cmode[j]
                 uncs_cm[j][:,i] = uncs_raw[j][:,i]#/self.cmode[j]
+            if 0: # DELETE
+                plt.figure()
+                ax1 = plt.subplot( 211 )
+                ax2 = plt.subplot( 212, sharex=ax1 )
+                ax1.plot( self.jd, flux_raw[j][:,0], 'ok' )
+                ax1.plot( self.jd, np.median(flux_raw[j][:,0])*self.cmode[j], '-r' )
+                ax2.plot( self.jd, flux_cm[j][:,0], 'ok' )
+                pdb.set_trace()
         if withDispShifts==True:
             l1 = 'withDispShifts'
         else:

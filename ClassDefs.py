@@ -5420,10 +5420,6 @@ class WFC3SpecLightCurves():
             ix1 = np.arange( nwav )[np.argmin( dwav1 )]
         self.ss_dispbound_ixs = [ ix0, ix1 ]
         self.ss_dispbound_wav = [ wavmicr[ix0], wavmicr[ix1] ]
-            
-        #print( 'rrrrr2', self.ss_dispbound_ixs )
-        #print( 'rrrrr3', self.ss_dispbound_wav )
-        #pdb.set_trace()
         flux_ss = {}
         uncs_ss = {}
         for j in self.scankeys:
@@ -5431,7 +5427,7 @@ class WFC3SpecLightCurves():
             ecounts1dj = ecounts1d[ixsj,:]
             psignalj = bestfits[j]['psignal']
             ixs_full = np.arange( psignalj.size )
-            ixs_in = psignalj<1-1e-6
+            ixs_in = psignalj<1-1e-7
             ixs_out = ixs_full[np.isin(ixs_full,ixs_in,invert=True)]
             refspecj = np.median( ecounts1dj[ixs_out,:], axis=0 )
             self.CalcSpecVars( j, ecounts1dj, refspecj )
@@ -5501,7 +5497,7 @@ class WFC3SpecLightCurves():
             ecounts1dj = ecounts1d[ixsj,:]
             psignalj = bestfits[j]['psignal']
             ixs_full = np.arange( psignalj.size )
-            ixs_in = psignalj<1-1e-6
+            ixs_in = psignalj<1-1e-7
             ixs_out = ixs_full[np.isin( ixs_full, ixs_in, invert=True )]
             #refspecj = np.median( ecounts1dj[ixs_out,:], axis=0 )
             # Take the last out-of-transit spectrum as reference
@@ -5569,7 +5565,7 @@ class WFC3SpecLightCurves():
             ecounts1dj = ecounts1d[ixsj,:]
             psignalj = bestfits[j]['psignal']
             ixs_full = np.arange( psignalj.size )
-            ixs_in = psignalj<1-1e-6
+            ixs_in = psignalj<1-1e-7
             ixs_out = ixs_full[np.isin(ixs_full,ixs_in,invert=True)]
             refspecj = np.median( ecounts1dj[ixs_out,:], axis=0 )
             self.CalcSpecVars( j, ecounts1dj, refspecj )

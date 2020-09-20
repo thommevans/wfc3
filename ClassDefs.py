@@ -5093,10 +5093,12 @@ class WFC3SpecLightCurves():
         """        
         self.cmode = {}
         self.cmode = {}
+        self.psignalWhite = {}
         for j in self.scankeys:
             ixsj = ( self.scandirs==UR.ScanVal( j ) )
             psignalj = bestfits[j]['psignal']
             self.cmode[j] = flux[ixsj]/psignalj
+            self.psignalWhite[j] = psignalj
             if 0:
                 plt.figure()
                 plt.plot( self.jd, psignalj )
@@ -5298,8 +5300,20 @@ class WFC3SpecLightCurves():
             flux_cm[j] = np.zeros( [ ndat, self.nchannels ] )
             uncs_cm[j] = np.zeros( [ ndat, self.nchannels ] )
             for i in range( self.nchannels ):
+                    
                 flux_cm[j][:,i] = flux_raw[j][:,i]/self.cmode[j]
                 uncs_cm[j][:,i] = uncs_raw[j][:,i]#/self.cmode[j]
+                # DELETE:
+                if 0:
+                    t = self.jd[ixsj]
+                    f = flux_raw[j][:,i]
+                    plt.figure()
+                    plt.plot( t, f/f[-1], 'ok' )
+                    #plt.plot( t, self.cmode[j]/self.cmode[j][-1], 'xr' )
+                    #plt.plot( t, flux_cm[j][:,i]/flux_cm[j][:,i][-1], 'og' )
+                    plt.plot( t, self.psignalWhite[j]+0.0015, 'dm' )
+                    plt.plot( t, self.psignalWhite[j], 'dc' )
+                    pdb.set_trace()
             if 0: # DELETE
                 plt.figure()
                 ax1 = plt.subplot( 211 )

@@ -546,6 +546,7 @@ def MaxLogLikePoint( walker_chain, mbundle ):
     ix = np.unravel_index( ix, walker_chain['logp'][ixs0].shape )
     print( '\nLocating maximum likelihood values...' )
     parVals = {}
+    mp = pyhm.MAP( mbundle )
     for key in mp.model.free.keys():
         parVals[key] = walker_chain[key][ixs0][ix]
     logLikeMax = walker_chain['logp'][ixs0][ix]

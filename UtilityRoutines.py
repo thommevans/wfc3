@@ -540,17 +540,30 @@ def GetGPStr( gpinputs ):
     return gpstr
 
 
+def MaxLogLikePoint( walker_chain, mbundle ):
+    ixs0 = np.isfinite( walker_chain['logp'] )
+    ix = np.argmax( walker_chain['logp'][ixs0] )        
+    ix = np.unravel_index( ix, walker_chain['logp'][ixs0].shape )
+    print( '\nLocating maximum likelihood values...' )
+    parVals = {}
+    for key in mp.model.free.keys():
+        parVals[key] = walker_chain[key][ixs0][ix]
+    logLikeMax = walker_chain['logp'][ixs0][ix]
+    return parVals, logLikeMax
+
 def RefineMLE( walker_chain, mbundle ):
     """
     Takes a walker group chain and refines the MLE.
     """
-    ixs0 = np.isfinite( walker_chain['logp'] )
-    ix = np.argmax( walker_chain['logp'][ixs0] )        
-    ix = np.unravel_index( ix, walker_chain['logp'][ixs0].shape )
+    #ixs0 = np.isfinite( walker_chain['logp'] )
+    #ix = np.argmax( walker_chain['logp'][ixs0] )        
+    #ix = np.unravel_index( ix, walker_chain['logp'][ixs0].shape )
+    parVals, logLikeMax = MaxLogLikePoint( walker_chain, mbundle )
     print( '\nRefining the best-fit solution...' )
     mp = pyhm.MAP( mbundle )
     for key in mp.model.free.keys():
-        mp.model.free[key].value = walker_chain[key][ixs0][ix]
+        #mp.model.free[key].value = walker_chain[key][ixs0][ix]
+        mp.model.free[key].value = parVals[key]
     mp.fit( xtol=1e-4, ftol=1e-4, maxfun=10000, maxiter=10000 )
     print( 'Done.\nRefined MLE values:' )
     mle_refined = {}
@@ -723,6 +736,21 @@ def RefineMLEfromGroups( walker_chains, mbundle ):
     ix = np.argmax( logp )
     # Restrict to this walker group:
     return RefineMLE( walker_chains[ix], mbundle )
+
+
+def MaxLogLikefromGroups( walker_chains, mbundle ):
+    ngroups = len( walker_chains )
+    # Identify which walker group hits the highest logp:
+    parVals = []
+    logp = np.zeros( ngroups )
+    for i in range( ngroups ):
+        z = MaxLogLikePoint( walker_chain[i], mbundle )
+        parVals += [ z[0] ]
+        logp[i] = z[1]
+    ix = np.argmax( logp )
+    # Restrict to this walker group:
+    #return RefineMLE( walker_chains[ix], mbundle )
+    return parVals[ix]
 
 
 def GetInitWalkers( mcmc, nwalkers, init_par_ranges ):

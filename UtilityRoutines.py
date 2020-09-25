@@ -745,7 +745,7 @@ def MaxLogLikefromGroups( walker_chains, mbundle ):
     parVals = []
     logp = np.zeros( ngroups )
     for i in range( ngroups ):
-        z = MaxLogLikePoint( walker_chain[i], mbundle )
+        z = MaxLogLikePoint( walker_chains[i], mbundle )
         parVals += [ z[0] ]
         logp[i] = z[1]
     ix = np.argmax( logp )

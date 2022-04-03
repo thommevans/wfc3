@@ -1,4 +1,4 @@
-import pdb, sys, os, glob, pickle, time, re
+import pdb, sys, os, glob, pickle, time, re, shutil
 import copy
 import numpy as np
 import scipy.ndimage, scipy.interpolate, scipy.optimize, scipy.integrate
@@ -6,6 +6,7 @@ import astropy.io.fits as pyfits
 import matplotlib
 import matplotlib.pyplot as plt
 import batman
+import imageio
 from limbdark_dev import ld
 from bayes.pyhm_dev import pyhm
 from bayes.gps_dev.gps import gp_class, kernels
@@ -5134,6 +5135,14 @@ class WFC3SpecLightCurves():
                 ax1.plot( self.jd, np.median(flux_raw[j][:,0])*self.cmode[j], '-r' )
                 ax2.plot( self.jd, flux_cm[j][:,0], 'ok' )
                 pdb.set_trace()
+        if 0: # DELETE
+            #ixsf = ( self.scandirs==UR.ScanVal( 'f' ) )
+            #ixsb = ( self.scandirs==UR.ScanVal( 'b' ) )
+            #plt.figure()
+            #plt.plot( self.jd[ixsf], flux_raw['f'][:,0], 'ok' )
+            #plt.plot( self.jd[ixsb], flux_raw['b'][:,0], 'or' )
+            print( 'a', np.shape( self.jd ) )
+            pdb.set_trace()
         if withDispShifts==True:
             l1 = 'withDispShifts'
         else:
@@ -5142,6 +5151,7 @@ class WFC3SpecLightCurves():
             l2 = 'unSmoothed'
         else:
             l2 = 'Smoothed'
+        #pdb.set_trace()
         self.lc_flux['raw'][l1][l2][smoothing_fwhm] = flux_raw
         self.lc_uncs['raw'][l1][l2][smoothing_fwhm] = uncs_raw
         self.lc_flux['cm'][l1][l2][smoothing_fwhm] = flux_cm
@@ -5866,7 +5876,10 @@ class WFC3Spectra():
         else:
             self.ss_smoothing_str = 'smooth{0:.2f}pix'.format( self.ss_smoothing_fwhm )
         self.getFilterStr()
-        ecounts2d = self.ProcessIma()
+        # Reconstructed frames (ecounts2d) plus read differences and corresponding
+        # cross-dispersion centroids for an example frame (i.e. the final frame):
+        ecounts2d, e2dperRead_Eg, rdiff_cscans_Eg = self.ProcessIma()
+        
         # Having problems with ZapBadPix2D, mainly with it seeming
         # to do a bad job of flagging static bad pixels that
         # probably shouldn't be flagged... so I've hacked the routine
@@ -5886,6 +5899,7 @@ class WFC3Spectra():
         self.ZapBadPix1D()
         self.ShiftStretch()
         self.SaveEcounts2D( ecounts2d )
+        self.SaveBgSubtractedRdiffStack( e2dperRead_Eg, rdiff_cscans_Eg )
         self.SaveSpec1D()
         return None
 
@@ -5927,7 +5941,90 @@ class WFC3Spectra():
         ofile = open( self.ecounts2d_fpath, 'wb' )
         pickle.dump( ecounts2d, ofile )
         ofile.close()
-        print( '\nSaved:\n{0}'.format( self.ecounts2d_fpath ) )
+        fpathGIF = self.animateEcounts2D( ecounts2d )
+        print( '\nSaved:\n{0}\n{1}\n'.format( self.ecounts2d_fpath, fpathGIF ) )
+        return None
+
+    def animateEcounts2D( self, ecounts2d ):
+        ###################################################
+        # Generate temporary PNGs and make a gif animation:
+        a1 = 'rdiff_zap'
+        a2 = 'rlast_zap'
+        ims = { a1:ecounts2d[a1], a2:ecounts2d[a2] }
+        ny, nx, nims = np.shape( ims[a1] )
+        ixsx = self.trim_disp_ixs
+        ixsy = self.trim_crossdisp_ixs
+        x = np.arange( ixsx[0], ixsx[1] )
+        y = np.arange( ixsy[0], ixsy[1] )
+        zmax = np.max( np.max( ims[a1], axis=0 ), axis=0 )
+        vmax = np.median( zmax ) + np.std( zmax )
+        vmin = 0
+        tempDir = os.path.join( self.ecounts2d_dir, 'tempPNGs' )
+        if os.path.isdir( tempDir )==False:
+            os.makedirs( tempDir )
+        fpathsGIF = []
+        nstr = len( str( nims ) )
+        cdps = { a1:[], a2:[] }
+        imsTrimmed = []
+        for i in range( nims ):
+            for a in [a1,a2]:
+                imi = ims[a][:,:,i][ixsy[0]:ixsy[1],ixsx[0]:ixsx[1]]
+                e1di = self.spectra[a]['ecounts1d'][i][ixsx[0]:ixsx[1]]
+                e1di = scipy.ndimage.filters.gaussian_filter1d( e1di, 2 )
+                ixsi = ( e1di>0.5*e1di.max() )
+                cdps[a] += [ np.median( imi[:,ixsi], axis=1 ) ]
+                if a==a1:
+                    imsTrimmed += [ imi ]
+        cdpMed = np.median( np.column_stack( cdps[a1] ), axis=1 )
+        xlim2 = [ -0.1*cdpMed.max(), 1.1*cdpMed.max() ]
+        for i in range( nims ):
+            fig = plt.figure( figsize=[12,5] )
+            axw = 0.42
+            axh = 0.80
+            xlow1 = 0.05
+            xlow2 = 0.05 + (xlow1+axw)
+            ylow = 0.12
+            ax1 = fig.add_axes( [xlow1,ylow,axw,axh]  )
+            ax2 = fig.add_axes( [xlow2,ylow,axw,axh], sharey=ax1 )
+            ax1.imshow( imsTrimmed[i], interpolation='nearest', aspect='auto', vmin=vmin, vmax=vmax, \
+                        extent=[ixsx[0],ixsx[1],ixsy[1],ixsy[0]] )
+            for a in [a1,a2]:
+                ax2.plot( cdps[a][i], y, label=a )
+            ax2.legend( loc='upper right', ncol=2 )
+            titleStr = '{0} : frame {1:.0f} of {2:.0f}'.format( os.path.basename( self.ecounts2d_fpath ), i+1, nims )
+            fig.suptitle( titleStr )
+            ax1.set_ylabel( 'Cross-dispersion (pixel)' )
+            ax1.set_xlabel( 'Dispersion (pixel)' )
+            ax2.set_xlabel( 'Cross-dispersion profile (electron)' )
+            ax2.set_xlim( xlim2 )
+            oname = 'img_{0:0{1}d}.png'.format( i+1 , nstr )
+            opath = os.path.join( tempDir, oname )
+            fig.savefig( opath, dpi=150 )
+            fpathsGIF += [ opath ]
+            if i==nims-1: # Save one image on its own for later reference
+                opath = os.path.join( self.ecounts2d_dir, 'exampleFrame.pdf' )
+                fig.savefig( opath )
+            plt.close( 'all' )
+        print( 'generating GIF...' )
+        opathGIF = self.ecounts2d_fpath.replace( '.pkl', '.gif' )
+        frames = []
+        for i in range( nims ):
+            frames += [ imageio.imread( fpathsGIF[i] ) ]
+        kwargs = { 'duration':0.2 }
+        imageio.mimsave( opathGIF, frames, 'GIF', **kwargs)
+        shutil.rmtree( tempDir )
+        return opathGIF
+
+    def SaveBgSubtractedRdiffStack( self, readDiffs, cscans ):
+        if os.path.isdir( self.ecounts2d_dir )==False:
+            os.makedirs( self.ecounts2d_dir )
+        oname = '{0}.rdiffExample.pkl'.format( self.dsetname )
+        self.bgSubtractedRdiff_fpath = os.path.join( self.ecounts2d_dir, oname )
+        outp = { 'rdiff':readDiffs, 'cscans':cscans }
+        ofile = open( self.bgSubtractedRdiff_fpath, 'wb' )
+        pickle.dump( outp, ofile )
+        ofile.close()
+        print( '\nSaved:\n{0}'.format( self.bgSubtractedRdiff_fpath ) )
         return None
 
     
@@ -6232,10 +6329,17 @@ class WFC3Spectra():
             cond2 = ( h0['FILTER']==self.filter_str )
             if cond1*cond2:
                 hdu = pyfits.open( self.ima_fpaths[i] )
-                ecounts2di, check = self.Extract2DEcounts( hdu )
+                ecounts2di, e2dperRead, rdiff_cscans, check = self.Extract2DEcounts( hdu )
+                #plt.ion()
+                #plt.figure()
+                #plt.imshow( e2dperRead[:,:,5] )
+                #plt.axhline( rdiff_cscans[5-1] )
+                #print( np.shape( rdiff_cscans ) )
+                #pdb.set_trace()
                 if check==False:
+                    fname = os.path.basename( self.ima_fpaths[i] )
                     print( '... {0} of {1} - skipping {2} (appears corrupt science frame?)'
-                           .format( i+1, self.nframes, os.path.basename( self.ima_fpaths[i] ) ) )
+                           .format( i+1, self.nframes, fname ) )
                 else:
                     print( '... {0} of {1} - keeping {2}+{3}'
                            .format( i+1, self.nframes, h0['OBSTYPE'], h0['FILTER'] ) )
@@ -6264,7 +6368,7 @@ class WFC3Spectra():
             bg_ppix = self.spectra[k]['auxvars']['bg_ppix']
             self.spectra[k]['auxvars'] = { 'bg_ppix':np.array( bg_ppix )[ixs] }
             ecounts2d[k] = np.dstack( ecounts2d[k] )[:,:,ixs]
-        return ecounts2d
+        return ecounts2d, e2dperRead, rdiff_cscans
 
     def extractDriftSpectraFunc( self, ecounts2dRaw, analysis ):
         """
@@ -6671,7 +6775,7 @@ class WFC3Spectra():
         nreads = UR.WFC3Nreads( hdu )
         if nreads<0:
             check = False
-            return -1, check
+            return -1, -1, -1, check
         else:
             check = True
             # First, extract flux from final read:
@@ -6687,6 +6791,7 @@ class WFC3Spectra():
             # Second, extract flux by summing read-differences:
             ndiffs = nreads-1
             rdiff_ecounts = np.zeros( [ self.nscan, self.ndisp, ndiffs ] )
+            rdiffRaw_ecounts = np.zeros( [ self.nscan, self.ndisp, ndiffs ] )
             rdiff_cscans = np.zeros( ndiffs )
             for j in range( ndiffs ):
                 rix = j+1
@@ -6701,6 +6806,7 @@ class WFC3Spectra():
                 e1 = e1_withBG - bg1
                 e2 = e2_withBG - bg2
                 rdiff_ecounts[:,:,j] = e2-e1
+                rdiffRaw_ecounts[:,:,j] = e2-e1
                 cscan = self.DetermineScanCenter( rdiff_ecounts[:,:,j] )
                 # Apply the top-hat mask:
                 ixl = int( np.floor( cscan-self.maskradius ) )
@@ -6715,9 +6821,10 @@ class WFC3Spectra():
                 self.scandirs += [ -1 ]
             firstr_raw = UR.WFC3JthRead( hdu, nreads, 1 )
             firstr_ecounts = firstr_raw-self.BackgroundMed( firstr_raw )[0]
+            ecountsRaw_per_read = np.dstack( [ firstr_ecounts, rdiffRaw_ecounts ] )
             ecounts_per_read = np.dstack( [ firstr_ecounts, rdiff_ecounts ] )
             ecounts2d['rdiff'] = np.sum( ecounts_per_read, axis=2 )
-            return ecounts2d, check
+            return ecounts2d, ecountsRaw_per_read, rdiff_cscans, check
 
     def BackgroundMed( self, ecounts2d ):
         c1, c2 = self.bg_box[0]

@@ -6001,7 +6001,7 @@ class WFC3Spectra():
             opath = os.path.join( tempDir, oname )
             fig.savefig( opath, dpi=150 )
             fpathsGIF += [ opath ]
-            if i==nims-1: # Save one image on its own for later reference
+            if i==nims-4: # Save one of the later images on its own for later reference
                 opath = os.path.join( self.ecounts2d_dir, 'exampleFrame.pdf' )
                 fig.savefig( opath )
             plt.close( 'all' )

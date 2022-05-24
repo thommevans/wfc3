@@ -9,7 +9,7 @@ import pysynphot
 
 
 def loadStellarModel( Teff, MH, logg, stellarModel='k93models' ):
-    sp = pysynphot.Icat( 'k93models', Teff, MH, logg )
+    sp = pysynphot.Icat( stellarModel, Teff, MH, logg )
     wavA = sp.wave # A
     flam = sp.flux # erg s^-1 cm^-2 A^-1
     #flam = flam*wavA

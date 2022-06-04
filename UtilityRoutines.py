@@ -5,10 +5,56 @@ import scipy.ndimage
 from bayes.pyhm_dev import pyhm
 import numexpr
 import pysynphot
+try:
+    import ldtk
+    LDTK_IMPORTED = True
+except:
+    LDTK_IMPORTED = False
+
+
+def computeLDTK( cuton_micr, cutoff_micr, tr_wavs_micr, tr_vals, \
+                 teff=5000, logg=4.5, metal=0.0 ):
+    if LDTK_IMPORTED==True:
+        cuton_nm = cuton_micr*1000
+        cutoff_nm = cutoff_micr*1000
+        tr_wavs_nm = tr_wavs_micr*1000
+        if cuton_nm<tr_wavs_nm.min(): cuton_nm = tr_wavs_nm.min()
+        if cutoff_nm>tr_wavs_nm.max(): cutoff_nm = tr_wavs_nm.max()
+        #print( '\nLDTK solution between {0:.1f}-{1:.1f} nm:'.format( cuton_nm, cutoff_nm ) )
+        ngrid = 1000
+        x = np.linspace( cuton_nm, cutoff_nm, ngrid )
+        tr_vals = tr_vals/tr_vals.max()
+        y = np.interp( x, tr_wavs_nm, tr_vals )
+        filters = [ ldtk.TabulatedFilter( 'mybandpass', x, y ) ]
+        #print( 'Setting up LD object...' )
+        sc = ldtk.LDPSetCreator( teff=teff, logg=logg, z=metal, filters=filters )
+        #print( 'Creating limb darkening profiles...' )
+        ps = sc.create_profiles( nsamples=2000 )
+        ps.resample_linear_z( 300 )
+        ld_qd, uncs_qd = ps.coeffs_qd()
+        ld_nl, uncs_nl = ps.coeffs_nl()
+        ld_ln, uncs_ln = ps.coeffs_ln()
+        if 0:
+            print( 'using MCMC...' )
+            nsamples = 20000
+            ld_qd_mc = ps.coeffs_qd( do_mc=True, n_mc_samples=nsamples )
+            ld_nl_mc = ps.coeffs_nl( do_mc=True, n_mc_samples=nsamples )
+            print( 'Done.' )
+        outp = {}
+        outp['linear'] = { 'Vals':ld_ln[0], 'Uncs':uncs_ln[0] }
+        outp['quadratic'] = { 'Vals':ld_qd[0], 'Uncs':uncs_qd[0] }
+        outp['fourparam_nonlin'] = { 'Vals':ld_nl[0], 'Uncs':uncs_nl[0] }
+    else:
+        print( '\nCould not import PyLDTK - skipping\n' )
+        outp = None
+    return outp
 
 
 
 def loadStellarModel( Teff, MH, logg, stellarModel='k93models' ):
+    """
+    stellarModel options are: 'ck04models', 'k93models', 'phoenix'
+    """
     sp = pysynphot.Icat( stellarModel, Teff, MH, logg )
     wavA = sp.wave # A
     flam = sp.flux # erg s^-1 cm^-2 A^-1

@@ -13,7 +13,7 @@ from bayes.gps_dev.gps import gp_class, kernels
 from . import UtilityRoutines as UR
 from . import Systematics
 from .mpfit import mpfit
-
+    
 try:
     os.environ['DISPLAY']
 except:
@@ -5736,6 +5736,17 @@ class WFC3WhiteLightCurve():
         self.ld['lin1d'] = ld.lin
         self.ld['quad1d'] = ld.quad        
         self.ld['nonlin1d'] = ld.nonlin
+        z = UR.computeLDTK( ld.cutonmicr, ld.cutoffmicr, \
+                            ld.bandpass_wavmicr, ld.bandpass_thput, \
+                            teff=self.stellar_teff, logg=self.stellar_logg, \
+                            metal=self.stellar_metal )
+        if z is not None:
+            self.ldtk = {}
+            self.ldtk['Vals'] = { 'lin1d':float( z['linear']['Vals'] ), \
+                                  'quad1d':z['quadratic']['Vals'].flatten() }
+            self.ldtk['Uncs'] = { 'lin1d':float( z['linear']['Uncs'] ), \
+                                  'quad1d':z['quadratic']['Uncs'].flatten() }
+        
         return None
     
     def Plot( self ):
